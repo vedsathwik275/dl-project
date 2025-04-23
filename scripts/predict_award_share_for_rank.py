@@ -155,7 +155,8 @@ def convert_to_ranks(df, pred_col='predicted_award_share'):
         group.loc[mask, 'predicted_rank'] = 5
         return group
     
-    ranked_df = ranked_df.groupby('season').apply(limit_ranks)
+    # Apply limit_ranks and reset index to avoid 'season' being both index and column
+    ranked_df = ranked_df.groupby('season').apply(limit_ranks).reset_index(drop=True)
     
     # Convert to integer
     ranked_df['predicted_rank'] = ranked_df['predicted_rank'].astype(int)
