@@ -1,0 +1,58 @@
+season,player,award_share,predicted_award_share,MVP_rank,predicted_rank,rank_error,prediction_quality
+2022,Nikola Jokić,0.875,0.58916354,1,1,0,Exact Match
+2022,Joel Embiid,0.706,0.26738486,2,3,1,Off by 1
+2022,Giannis Antetokounmpo,0.595,0.49236485,3,2,-1,Off by 1
+2022,Devin Booker,0.216,-0.24312004,4,5,1,Off by 1
+2022,Luka Dončić,0.146,-0.0173106,5,5,0,Exact Match
+2022,Jayson Tatum,0.043,0.020775827,6,4,-2,Off by 2
+2022,Stephen Curry,0.004,-0.1540851,7,5,-2,Off by 2
+2021,Nikola Jokić,0.961,0.58678967,1,1,0,Exact Match
+2021,Stephen Curry,0.449,0.15138084,2,3,1,Off by 1
+2021,Giannis Antetokounmpo,0.345,0.32390222,3,2,-1,Off by 1
+2021,Chris Paul,0.138,-0.20278415,4,5,1,Off by 1
+2021,Luka Dončić,0.042,0.03931059,5,4,-1,Off by 1
+2021,Damian Lillard,0.038,0.024639072,6,5,-1,Off by 1
+2021,Julius Randle,0.02,-0.1077946,7,5,-2,Off by 2
+2020,Giannis Antetokounmpo,0.952,0.49521238,1,1,0,Exact Match
+2020,LeBron James,0.746,-0.05561886,2,5,3,Off by >2
+2020,James Harden,0.363,0.4259693,3,2,-1,Off by 1
+2020,Luka Dončić,0.198,0.08895984,4,5,1,Off by 1
+2020,Anthony Davis,0.081,0.18482555,5,3,-2,Off by 2
+2020,Chris Paul,0.026,-0.33441633,6,5,-1,Off by 1
+2020,Damian Lillard,0.023,0.16077209,7,4,-3,Off by >2
+2019,Giannis Antetokounmpo,0.932,0.54824144,1,1,0,Exact Match
+2019,James Harden,0.768,0.49689877,2,2,0,Exact Match
+2019,Paul George,0.352,0.104749516,3,4,1,Off by 1
+2019,Nikola Jokić,0.21,0.060747027,4,5,1,Off by 1
+2019,Stephen Curry,0.173,-0.20872602,5,5,0,Exact Match
+2019,Damian Lillard,0.068,0.10632764,6,3,-3,Off by >2
+2019,Joel Embiid,0.049,-0.15260665,7,5,-2,Off by 2
+2018,James Harden,0.955,0.3162319,1,1,0,Exact Match
+2018,LeBron James,0.731,0.2795346,2,2,0,Exact Match
+2018,Anthony Davis,0.441,0.2178296,3,3,0,Exact Match
+2018,Damian Lillard,0.205,0.058265746,4,5,1,Off by 1
+2018,Russell Westbrook,0.075,-0.12410885,5,5,0,Exact Match
+2018,Giannis Antetokounmpo,0.074,0.08464429,6,4,-2,Off by 2
+2018,Kevin Durant,0.065,-0.32806125,7,5,-2,Off by 2
+2017,Russell Westbrook,0.879,0.5926403,1,1,0,Exact Match
+2017,James Harden,0.746,0.16289066,2,3,1,Off by 1
+2017,Kawhi Leonard,0.495,0.31375334,3,2,-1,Off by 1
+2017,LeBron James,0.33,0.019074926,4,5,1,Off by 1
+2017,Isaiah Thomas,0.08,0.034747206,5,5,0,Exact Match
+2017,Stephen Curry,0.051,-0.09374249,6,5,-1,Off by 1
+2017,Giannis Antetokounmpo,0.007,0.07353333,7,4,-3,Off by >2
+2017,John Wall,0.007,-0.30859962,7,5,-2,Off by 2
+2016,Stephen Curry,1.0,0.45765197,1,1,0,Exact Match
+2016,Kawhi Leonard,0.484,0.017177517,2,5,3,Off by >2
+2016,LeBron James,0.482,0.23064767,3,3,0,Exact Match
+2016,Russell Westbrook,0.371,0.11894109,4,4,0,Exact Match
+2016,Kevin Durant,0.112,0.285578,5,2,-3,Off by >2
+2016,Chris Paul,0.082,-0.1711672,6,5,-1,Off by 1
+2016,Draymond Green,0.038,-0.24693769,7,5,-2,Off by 2
+2015,Stephen Curry,0.922,0.3256549,1,1,0,Exact Match
+2015,James Harden,0.72,0.19953433,2,4,2,Off by 2
+2015,LeBron James,0.425,0.073226236,3,5,2,Off by 2
+2015,Russell Westbrook,0.271,0.06919284,4,5,1,Off by 1
+2015,Anthony Davis,0.156,0.29127276,5,2,-3,Off by >2
+2015,Chris Paul,0.095,0.2770754,6,3,-3,Off by >2
+2015,LaMarcus Aldridge,0.005,-0.3056463,7,5,-2,Off by 2
