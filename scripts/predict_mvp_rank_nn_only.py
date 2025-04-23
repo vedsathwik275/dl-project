@@ -40,8 +40,9 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
     """
     Calculate accuracy with partial credit:
     - Exact match: 1.0 (100% correct)
-    - Off by 1 rank: 0.8 (80% correct)
-    - Off by 2 ranks: 0.2 (20% correct)
+    - Off by 1 rank: 0.8 (80% credit)
+    - Off by 2 ranks: 0.2 (20% credit)
+    - Special case: When actual rank is 5 and predicted is >5, or vice versa, treated as off by 1
     - Off by >2 ranks: 0.0 (incorrect)
     """
     # Ensure predictions are within 1-5 range
@@ -50,11 +51,17 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
     # Calculate absolute difference between predicted and actual ranks
     rank_diff = np.abs(y_pred_rounded - y_true)
     
+    # Special case handling for boundary between top-5 and outside top-5
+    # If true rank is 5 and predicted as 6 or 7, count as off-by-1
+    # If true rank is 6 or 7 and predicted as 5, count as off-by-1
+    special_case = ((y_true == 5) & (y_pred_rounded > 5)) | ((y_true > 5) & (y_pred_rounded == 5))
+    
     # Assign scores based on rank difference
     scores = np.zeros_like(rank_diff, dtype=float)
     scores[rank_diff == 0] = 1.0    # Exact matches
     scores[rank_diff == 1] = 0.8    # Off by one rank
     scores[rank_diff == 2] = 0.2    # Off by two ranks
+    scores[special_case] = 0.8      # Special case (treat as off by one)
     
     # Return the average score
     return scores.mean()
@@ -134,7 +141,7 @@ try:
     if missing_cols:
         raise ValueError(f"Error: Missing essential columns: {missing_cols}")
     
-    # Focus only on rows with MVP_rank (1-5)
+    # Focus only on rows with MVP_rank (1-7 will be used, but predictions are 1-5)
     df_mvp = df.dropna(subset=['MVP_rank'])
     print(f"Number of rows with MVP rank: {len(df_mvp)} out of {len(df)} total rows")
     
@@ -274,7 +281,7 @@ try:
     print(f"\nMean Squared Error: {mse_mlp:.4f}")
     print(f"R-squared: {r2_mlp:.4f}")
     print(f"Exact Rank Accuracy: {acc_mlp_exact:.4f} ({int(acc_mlp_exact * len(y_test))} exact matches out of {len(y_test)})")
-    print(f"Flexible Rank Accuracy: {acc_mlp_flex:.4f} (includes 80% credit for being off by one or two ranks)")
+    print(f"Flexible Rank Accuracy: {acc_mlp_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks)")
     
     # Calculate counts for each type of match
     mlp_breakdown = get_prediction_breakdown(y_test, y_pred_mlp_rounded)
