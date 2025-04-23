@@ -1,0 +1,10 @@
+ws
+vorp
+ws_per_48
+bpm
+win_loss_pct
+pts_per_g
+fg_per_g
+fg2_per_g
+ft_per_g
+fga_per_g

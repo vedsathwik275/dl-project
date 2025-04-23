@@ -1,0 +1,58 @@
+season,player,MVP_rank,predicted_rank,rank_error,prediction_quality
+2022,Jayson Tatum,6,5,-1,Off by 1
+2021,Nikola Jokić,1,1,0,Exact Match
+2021,Luka Dončić,5,5,0,Exact Match
+2020,Luka Dončić,4,5,1,Off by 1
+2020,Anthony Davis,5,4,-1,Off by 1
+2019,Nikola Jokić,4,5,1,Off by 1
+2019,Damian Lillard,6,5,-1,Off by 1
+2018,James Harden,1,1,0,Exact Match
+2018,Giannis Antetokounmpo,6,5,-1,Off by 1
+2017,LeBron James,4,4,0,Exact Match
+2016,Stephen Curry,1,1,0,Exact Match
+2013,Tim Duncan,7,5,-2,Off by 2
+2012,Tony Parker,5,5,0,Exact Match
+2012,Russell Westbrook,7,4,-3,Off by >2
+2011,LeBron James,3,1,-2,Off by 2
+2010,Kevin Durant,2,4,2,Off by 2
+2010,Dwyane Wade,5,5,0,Exact Match
+2010,Carmelo Anthony,6,5,-1,Off by 1
+2009,Dwight Howard,4,5,1,Off by 1
+2009,Paul Pierce,7,5,-2,Off by 2
+2008,Chris Paul,2,2,0,Exact Match
+2008,Kevin Garnett,3,4,1,Off by 1
+2007,Steve Nash,2,5,3,Off by >2
+2007,Kobe Bryant,3,4,1,Off by 1
+2007,LeBron James,5,3,-2,Off by 2
+2006,Steve Nash,1,5,4,Off by >2
+2006,Dirk Nowitzki,3,1,-2,Off by 2
+2006,Kobe Bryant,4,4,0,Exact Match
+2005,Steve Nash,1,5,4,Off by >2
+2005,LeBron James,6,3,-3,Off by >2
+2004,Peja Stojaković,4,4,0,Exact Match
+2003,Tim Duncan,1,3,2,Off by 2
+2003,Kobe Bryant,3,4,1,Off by 1
+2002,Jason Kidd,2,5,3,Off by >2
+2002,Kobe Bryant,5,4,-1,Off by 1
+2001,Allen Iverson,1,3,2,Off by 2
+2001,Karl Malone,7,4,-3,Off by >2
+2000,Alonzo Mourning,3,5,2,Off by 2
+2000,Allen Iverson,7,5,-2,Off by 2
+1998,Tim Hardaway,6,5,-1,Off by 1
+1998,David Robinson,7,4,-3,Off by >2
+1997,Grant Hill,3,4,1,Off by 1
+1996,Anfernee Hardaway,3,5,2,Off by 2
+1995,Shaquille O'Neal,2,3,1,Off by 1
+1995,Patrick Ewing,4,5,1,Off by 1
+1992,Michael Jordan,1,1,0,Exact Match
+1992,Patrick Ewing,5,5,0,Exact Match
+1992,Mark Price,7,5,-2,Off by 2
+1990,Charles Barkley,2,4,2,Off by 2
+1988,Hakeem Olajuwon,7,5,-2,Off by 2
+1987,Dominique Wilkins,5,4,-1,Off by 1
+1985,Magic Johnson,2,4,2,Off by 2
+1984,Julius Erving,6,4,-2,Off by 2
+1983,Larry Bird,2,2,0,Exact Match
+1983,Alex English,6,4,-2,Off by 2
+1982,Robert Parish,4,5,1,Off by 1
+1982,Sidney Moncrief,7,5,-2,Off by 2
