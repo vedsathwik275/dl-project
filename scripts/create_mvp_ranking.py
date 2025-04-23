@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-INPUT_FILE = "../data/NBA_Dataset.csv"
-OUTPUT_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
+INPUT_FILE = "../data/filtered_nba_data.csv"
+OUTPUT_FILE = "../data/filtered_nba_data_with_MVP_rank.csv"
 TOP_RANKS = 7  # Number of top MVP candidates to rank (1-7)
 
 print(f"{'='*20} Creating MVP Rankings {'='*20}")

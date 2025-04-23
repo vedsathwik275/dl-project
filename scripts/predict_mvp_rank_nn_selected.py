@@ -14,12 +14,12 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
 # Configuration
-DATA_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
+DATA_FILE = "../data/filtered_nba_data_with_MVP_rank.csv"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
-EPOCHS = 150
+EPOCHS = 300
 BATCH_SIZE = 32
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 PATIENCE = 20  # For early stopping
 TOP_N_FEATURES = 10  # Number of top correlated features to select
 
