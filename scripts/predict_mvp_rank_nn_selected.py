@@ -6,10 +6,11 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 # Neural network imports
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Input, Concatenate, Add, LeakyReLU
+from tensorflow.keras.regularizers import l1_l2
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
 # Configuration
@@ -67,33 +68,82 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
     # Return the average score
     return scores.mean()
 
-# Function to build the optimized MLP model using only selected features
-def build_mlp_model(input_shape):
-    model = Sequential([
-        # Input layer - smaller since we're using fewer features
-        Dense(256, activation='relu', input_shape=(input_shape,)),
-        BatchNormalization(),
-        Dropout(0.5),  # Increased dropout
-        
-        # Hidden layer 1
-        Dense(128, activation='relu'),
-        BatchNormalization(),
-        Dropout(0.5),
-        
-        # Hidden layer 2
-        Dense(64, activation='relu'),
-        BatchNormalization(),
-        Dropout(0.4),
-        
-        # Output layer - sigmoid activation scaled to 1-5 range
-        Dense(1, activation='sigmoid')
-    ])
+# Custom ordinal loss function that penalizes more for larger ranking errors
+def ordinal_rank_loss(y_true, y_pred):
+    """
+    Custom loss function that penalizes larger ranking errors more severely
+    """
+    # Rescale predictions and true values back to 1-5 range
+    y_pred_rescaled = y_pred * 4 + 1
+    y_true_rescaled = y_true * 4 + 1
     
-    # Compile the model
+    # Calculate absolute error
+    abs_error = tf.abs(y_pred_rescaled - y_true_rescaled)
+    
+    # Square the error to increase penalty for larger differences
+    squared_error = tf.square(abs_error)
+    
+    # The exponent makes the loss increase more rapidly for larger errors
+    return tf.reduce_mean(squared_error)
+
+# Function to build improved MLP model with residual connections and better architecture
+def build_mlp_model(input_shape):
+    # Input layer
+    inputs = Input(shape=(input_shape,))
+    
+    # First block with residual connection
+    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(inputs)
+    x = BatchNormalization()(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dropout(0.4)(x)
+    
+    # Residual block 1
+    block_input = x
+    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    x = BatchNormalization()(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dropout(0.4)(x)
+    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    x = BatchNormalization()(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Add()([x, block_input])  # Residual connection
+    x = Dropout(0.4)(x)
+    
+    # Split into two branches for feature extraction at different levels
+    # Branch 1: Wide branch for general patterns
+    wide_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    wide_branch = BatchNormalization()(wide_branch)
+    wide_branch = LeakyReLU(alpha=0.1)(wide_branch)
+    wide_branch = Dropout(0.3)(wide_branch)
+    
+    # Branch 2: Deep branch for more complex patterns
+    deep_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    deep_branch = BatchNormalization()(deep_branch)
+    deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
+    deep_branch = Dropout(0.3)(deep_branch)
+    deep_branch = Dense(32, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(deep_branch)
+    deep_branch = BatchNormalization()(deep_branch)
+    deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
+    deep_branch = Dropout(0.3)(deep_branch)
+    
+    # Merge branches
+    merged = Concatenate()([wide_branch, deep_branch])
+    
+    # Final layers
+    x = Dense(32, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(merged)
+    x = BatchNormalization()(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = Dropout(0.2)(x)
+    
+    # Output layer - sigmoid activation scaled to 1-5 range
+    output = Dense(1, activation='sigmoid')(x)
+    
+    # Create and compile model
+    model = Model(inputs=inputs, outputs=output)
     optimizer = Adam(learning_rate=LEARNING_RATE)
     model.compile(
         optimizer=optimizer,
-        loss='mse',
+        loss=ordinal_rank_loss,  # Custom loss function
         metrics=['mae']
     )
     
@@ -256,6 +306,15 @@ try:
         verbose=1
     )
     
+    # Learning rate reduction when plateau is reached
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=10,
+        min_lr=1e-6,
+        verbose=1
+    )
+    
     # Train model
     print("\nTraining neural network...")
     history = mlp_model.fit(
@@ -263,7 +322,7 @@ try:
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         validation_split=0.2,
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, reduce_lr],  # Added learning rate schedule
         verbose=2
     )
     
