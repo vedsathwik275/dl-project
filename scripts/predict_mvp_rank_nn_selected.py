@@ -20,9 +20,10 @@ EPOCHS = 150
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 PATIENCE = 20  # For early stopping
+TOP_N_FEATURES = 10  # Number of top correlated features to select
 
-# Define features
-features = [
+# Define all possible features
+all_features = [
     'g', 'gs', 'mp_per_g',
     'fg_per_g', 'fga_per_g', 
     'fg3_per_g', 'fg3a_per_g',
@@ -66,25 +67,20 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
     # Return the average score
     return scores.mean()
 
-# Function to build the MLP model with the specified architecture
+# Function to build the optimized MLP model using only selected features
 def build_mlp_model(input_shape):
     model = Sequential([
-        # Input layer
-        Dense(512, activation='relu', input_shape=(input_shape,)),
+        # Input layer - smaller since we're using fewer features
+        Dense(256, activation='relu', input_shape=(input_shape,)),
         BatchNormalization(),
-        Dropout(0.4),
+        Dropout(0.5),  # Increased dropout
         
         # Hidden layer 1
-        Dense(256, activation='relu'),
-        BatchNormalization(),
-        Dropout(0.4),
-        
-        # Hidden layer 2
         Dense(128, activation='relu'),
         BatchNormalization(),
-        Dropout(0.4),
+        Dropout(0.5),
         
-        # Hidden layer 3
+        # Hidden layer 2
         Dense(64, activation='relu'),
         BatchNormalization(),
         Dropout(0.4),
@@ -117,7 +113,7 @@ def get_prediction_breakdown(y_true, y_pred):
         'off_by_more': off_by_more
     }
 
-print(f"{'='*20} MVP Rank Prediction with Neural Network {'='*20}")
+print(f"{'='*20} MVP Rank Prediction with Feature Selection {'='*20}")
 
 try:
     # Check for TensorFlow GPU support
@@ -136,23 +132,23 @@ try:
     print(f"Loaded data. Shape: {df.shape}")
     
     # Verify essential columns exist
-    essential_cols = features + ['season', 'MVP_rank', 'player']
+    essential_cols = all_features + ['season', 'MVP_rank', 'player']
     missing_cols = [col for col in essential_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Error: Missing essential columns: {missing_cols}")
     
-    # Focus only on rows with MVP_rank (1-7 will be used, but predictions are 1-5)
+    # Focus only on rows with MVP_rank
     df_mvp = df.dropna(subset=['MVP_rank'])
     print(f"Number of rows with MVP rank: {len(df_mvp)} out of {len(df)} total rows")
     
     # Convert data types and handle missing values
     # Convert feature columns to numeric
-    for col in features:
+    for col in all_features:
         if col in df_mvp.columns:
             df_mvp[col] = pd.to_numeric(df_mvp[col], errors='coerce')
     
     # Drop rows with NaN in features
-    df_mvp.dropna(subset=features, inplace=True)
+    df_mvp.dropna(subset=all_features, inplace=True)
     print(f"After dropping NaNs in features: {len(df_mvp)} rows")
     
     # Ensure MVP_rank is integer
@@ -169,18 +165,49 @@ try:
     def scale_group(group):
         scaler = StandardScaler()
         if len(group) > 1:  # Only scale if more than 1 row
-            group[features] = scaler.fit_transform(group[features])
+            group[all_features] = scaler.fit_transform(group[all_features])
         else:
-            group[features] = 0  # Set to 0 for single-row groups
+            group[all_features] = 0  # Set to 0 for single-row groups
         return group
     
     # Group by season and apply scaling
     df_mvp_with_season = df_mvp.copy()
-    X = df_mvp_with_season[features + ['season']].copy()
-    X_normalized = X.groupby('season').apply(scale_group)
+    X_all = df_mvp_with_season[all_features + ['season']].copy()
+    X_normalized_all = X_all.groupby('season').apply(scale_group)
     
     # Remove season column after scaling
-    X_normalized.drop(columns=['season'], inplace=True)
+    X_normalized_all.drop(columns=['season'], inplace=True)
+    
+    # 3. Feature Selection - Identify top features by correlation with MVP rank
+    print(f"\n{'-'*10} Feature Selection {'-'*10}")
+    
+    # Create a dataframe for correlation calculation
+    feature_selection_df = X_normalized_all.copy()
+    feature_selection_df['MVP_rank'] = df_mvp['MVP_rank'].values
+    
+    # Calculate correlations between each feature and MVP rank
+    feature_correlations = pd.DataFrame({
+        'Pearson': [feature_selection_df[feature].corr(feature_selection_df['MVP_rank']) for feature in all_features],
+        'Spearman': [feature_selection_df[feature].corr(feature_selection_df['MVP_rank'], method='spearman') for feature in all_features]
+    }, index=all_features)
+    
+    # Take absolute values for ranking importance
+    feature_correlations['Pearson_abs'] = feature_correlations['Pearson'].abs()
+    feature_correlations['Spearman_abs'] = feature_correlations['Spearman'].abs()
+    
+    # Sort by Spearman correlation (more appropriate for ranks)
+    feature_correlations_sorted = feature_correlations.sort_values('Spearman_abs', ascending=False)
+    
+    # Select top N features
+    selected_features = feature_correlations_sorted.index[:TOP_N_FEATURES].tolist()
+    
+    print(f"Top {TOP_N_FEATURES} features selected by correlation with MVP rank:")
+    for i, feature in enumerate(selected_features):
+        corr = feature_correlations_sorted.loc[feature, 'Spearman']
+        print(f"{i+1}. {feature}: {corr:.4f}")
+    
+    # Create feature matrix with only selected features
+    X_normalized = X_normalized_all[selected_features]
     
     # Target variable - MVP rank
     y = df_mvp['MVP_rank']
@@ -190,7 +217,7 @@ try:
     df_mvp = df_mvp.reset_index(drop=True)
     y = y.reset_index(drop=True)
     
-    # 3. Split data for training and testing
+    # 4. Split data for training and testing
     X_train, X_test, y_train, y_test = train_test_split(
         X_normalized, y, 
         test_size=TEST_SIZE, 
@@ -209,8 +236,8 @@ try:
     # Save info about test set for later analysis
     test_data = df_mvp.iloc[test_indices].copy()
     
-    # Neural Network (MLP)
-    print(f"\n{'-'*10} MLP Neural Network {'-'*10}")
+    # 5. Neural Network (MLP) with selected features
+    print(f"\n{'-'*10} MLP Neural Network with Selected Features {'-'*10}")
     
     # Prepare data for neural network
     # Scale target for sigmoid output (1-5 to 0-1)
@@ -257,8 +284,8 @@ try:
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('mlp_training_history.png')
-    print("Training history saved to 'mlp_training_history.png'")
+    plt.savefig('mlp_selected_training_history.png')
+    print("Training history saved to 'mlp_selected_training_history.png'")
     
     # Make predictions
     y_pred_mlp_scaled = mlp_model.predict(X_test)
@@ -292,6 +319,16 @@ try:
     print(f"  Off by 2 ranks: {mlp_breakdown['off_by_two']}")
     print(f"  Off by >2 ranks: {mlp_breakdown['off_by_more']}")
     
+    # Visualize feature importance 
+    plt.figure(figsize=(10, 6))
+    plt.barh(selected_features, feature_correlations.loc[selected_features, 'Spearman'])
+    plt.xlabel('Spearman Correlation with MVP Rank')
+    plt.ylabel('Selected Features')
+    plt.title('Selected Feature Importance for MVP Rank Prediction')
+    plt.tight_layout()
+    plt.savefig('selected_feature_importance.png')
+    print("\nFeature importance chart saved to 'selected_feature_importance.png'")
+    
     # Display some example predictions for analysis
     print(f"\n{'-'*10} Sample Predictions {'-'*10}")
     test_data['MLP_pred'] = y_pred_mlp_rounded
@@ -303,8 +340,13 @@ try:
     
     # Save model
     print("\nSaving model...")
-    mlp_model.save("mlp_mvp_rank_model")
-    print("Model saved to 'mlp_mvp_rank_model'")
+    mlp_model.save("mlp_mvp_rank_selected_model")
+    print("Model saved to 'mlp_mvp_rank_selected_model'")
+    
+    # Save selected features for later use
+    with open('selected_features.txt', 'w') as f:
+        f.write('\n'.join(selected_features))
+    print(f"Selected features saved to 'selected_features.txt'")
     
 except FileNotFoundError:
     print(f"Error: The file {DATA_FILE} was not found.")
@@ -317,4 +359,4 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-print(f"\n{'='*20} MVP Rank Prediction Finished {'='*20}") 
+print(f"\n{'='*20} MVP Rank Prediction with Feature Selection Finished {'='*20}") 
