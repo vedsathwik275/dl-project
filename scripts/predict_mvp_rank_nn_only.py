@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.decomposition import PCA
 
 # Neural network imports
 import tensorflow as tf
@@ -11,6 +12,7 @@ from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Configuration
 DATA_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
@@ -20,6 +22,7 @@ EPOCHS = 150
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 PATIENCE = 20  # For early stopping
+MIN_VARIANCE_EXPLAINED = 0.9  # Keep enough PCs to explain at least 90% of variance
 
 # Define features
 features = [
@@ -69,22 +72,17 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
 # Function to build the MLP model with the specified architecture
 def build_mlp_model(input_shape):
     model = Sequential([
-        # Input layer
-        Dense(512, activation='relu', input_shape=(input_shape,)),
+        # Input layer - modified for PC input
+        Dense(256, activation='relu', input_shape=(input_shape,)),
         BatchNormalization(),
         Dropout(0.4),
         
         # Hidden layer 1
-        Dense(256, activation='relu'),
-        BatchNormalization(),
-        Dropout(0.4),
-        
-        # Hidden layer 2
         Dense(128, activation='relu'),
         BatchNormalization(),
         Dropout(0.4),
         
-        # Hidden layer 3
+        # Hidden layer 2
         Dense(64, activation='relu'),
         BatchNormalization(),
         Dropout(0.4),
@@ -182,17 +180,67 @@ try:
     # Remove season column after scaling
     X_normalized.drop(columns=['season'], inplace=True)
     
+    # 2.5 Apply PCA to create principal components
+    print(f"\nApplying PCA to extract principal components...")
+    pca = PCA()
+    X_pca = pca.fit_transform(X_normalized)
+    
+    # Calculate explained variance and determine how many components to keep
+    explained_variance = pca.explained_variance_ratio_
+    cumulative_variance = np.cumsum(explained_variance)
+    
+    # Determine number of components needed to reach MIN_VARIANCE_EXPLAINED
+    n_components = np.argmax(cumulative_variance >= MIN_VARIANCE_EXPLAINED) + 1
+    
+    # Adjust if we need all components to reach the threshold
+    if n_components > len(cumulative_variance):
+        n_components = len(cumulative_variance)
+        print(f"Warning: Even with all {n_components} components, only {cumulative_variance[-1]:.2%} variance is explained")
+    else:
+        print(f"Selected {n_components} principal components explaining {cumulative_variance[n_components-1]:.2%} of variance")
+    
+    # Use only the selected number of components
+    X_pca_selected = X_pca[:, :n_components]
+    
+    # Print explained variance by each component
+    print(f"\nExplained variance by each principal component:")
+    for i in range(min(5, n_components)):  # Show at most 5 components
+        print(f"PC{i+1}: {explained_variance[i]:.4f} ({cumulative_variance[i]:.4f} cumulative)")
+    
+    # Visualize feature importance to principal components
+    print("\nVisualizing feature contributions to principal components...")
+    plt.figure(figsize=(14, 8))
+    components = pd.DataFrame(
+        np.abs(pca.components_[:3, :]),  # Take absolute values of first 3 components
+        columns=features
+    )
+    
+    # Create heatmap of feature contributions
+    plt.figure(figsize=(18, 6))
+    sns.heatmap(
+        components,
+        cmap='viridis',
+        yticklabels=[f'PC{i+1}' for i in range(3)],
+        xticklabels=features,
+        annot=False
+    )
+    plt.title('Feature Contributions to Principal Components')
+    plt.tight_layout()
+    plt.savefig('pca_feature_contributions.png')
+    print("Feature contributions heatmap saved to 'pca_feature_contributions.png'")
+    
     # Target variable - MVP rank
     y = df_mvp['MVP_rank']
     
     # Reset indices to ensure alignment after splitting
-    X_normalized = X_normalized.reset_index(drop=True)
+    X_pca_selected = pd.DataFrame(X_pca_selected)  # Convert to DataFrame for consistency
+    X_pca_selected = X_pca_selected.reset_index(drop=True)
     df_mvp = df_mvp.reset_index(drop=True)
     y = y.reset_index(drop=True)
     
     # 3. Split data for training and testing
     X_train, X_test, y_train, y_test = train_test_split(
-        X_normalized, y, 
+        X_pca_selected, y, 
         test_size=TEST_SIZE, 
         random_state=RANDOM_STATE,
         stratify=y  # Ensure balanced distribution of ranks
@@ -303,8 +351,13 @@ try:
     
     # Save model
     print("\nSaving model...")
-    mlp_model.save("mlp_mvp_rank_model")
-    print("Model saved to 'mlp_mvp_rank_model'")
+    mlp_model.save("mlp_mvp_rank_model_pca")
+    print("Model saved to 'mlp_mvp_rank_model_pca'")
+    
+    # Also save the PCA model for future predictions
+    import joblib
+    joblib.dump(pca, "pca_model.pkl")
+    print("PCA model saved to 'pca_model.pkl'")
     
 except FileNotFoundError:
     print(f"Error: The file {DATA_FILE} was not found.")
