@@ -6,7 +6,7 @@ from sklearn.decomposition import PCA
 import seaborn as sns
 
 # Configuration
-DATA_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
+DATA_FILE = "../data/filtered_nba_data_with_MVP_rank.csv"
 
 # Define features (same as in prediction scripts)
 features = [
@@ -22,7 +22,7 @@ features = [
     'win_loss_pct'
 ]
 
-print(f"{'='*20} PCA Analysis of MVP Rankings {'='*20}")
+print(f"{'='*20} PCA Analysis of MVP Award Share {'='*20}")
 
 try:
     # 1. Load data
@@ -30,9 +30,9 @@ try:
     df = pd.read_csv(DATA_FILE)
     print(f"Loaded data. Shape: {df.shape}")
     
-    # Focus on rows with MVP_rank data
-    df_mvp = df.dropna(subset=['MVP_rank'])
-    print(f"Number of rows with MVP rank: {len(df_mvp)} out of {len(df)} total rows")
+    # Focus on rows with award_share data
+    df_mvp = df.dropna(subset=['award_share'])
+    print(f"Number of rows with award_share: {len(df_mvp)} out of {len(df)} total rows")
     
     # Convert data types and handle missing values
     for col in features:
@@ -77,12 +77,12 @@ try:
     for i, var in enumerate(explained_variance[:5]):
         print(f"PC{i+1}: {var:.4f} ({cumulative_variance[i]:.4f} cumulative)")
     
-    # 4. Create DataFrame with principal components and MVP rank
+    # 4. Create DataFrame with principal components and award_share
     pc_df = pd.DataFrame(
         data=principal_components[:, :5],  # First 5 components
         columns=[f'PC{i+1}' for i in range(5)]
     )
-    pc_df['MVP_rank'] = df_mvp['MVP_rank'].values
+    pc_df['award_share'] = df_mvp['award_share'].values
     pc_df['player'] = df_mvp['player'].values
     pc_df['season'] = df_mvp['season'].values
     
@@ -136,7 +136,7 @@ try:
     scatter = plt.scatter(
         principal_components[:, 0], 
         principal_components[:, 1],
-        c=df_mvp['MVP_rank'],  # Color by MVP rank
+        c=df_mvp['award_share'],  # Color by award_share
         cmap='viridis',
         alpha=0.7,
         s=100  # Size of points
@@ -144,10 +144,10 @@ try:
     
     # Add colorbar
     cbar = plt.colorbar(scatter)
-    cbar.set_label('MVP Rank')
+    cbar.set_label('Award Share')
     
     # Label top players
-    top_players = df_mvp[df_mvp['MVP_rank'] <= 2]
+    top_players = df_mvp[df_mvp['award_share'] >= df_mvp['award_share'].quantile(0.9)]  # Top 10% by award share
     for idx, row in top_players.iterrows():
         i = df_mvp.index.get_loc(idx)
         plt.annotate(
@@ -184,46 +184,48 @@ try:
     plt.axhline(y=0, color='k', linestyle='--', alpha=0.3)
     plt.axvline(x=0, color='k', linestyle='--', alpha=0.3)
     plt.grid(alpha=0.3)
-    plt.title('Biplot: MVP Ranks in Principal Component Space')
+    plt.title('Biplot: Award Share in Principal Component Space')
     plt.xlabel(f'PC1 ({explained_variance[0]:.2%} variance)')
     plt.ylabel(f'PC2 ({explained_variance[1]:.2%} variance)')
     plt.tight_layout()
     plt.savefig('pca_biplot.png')
     print("PCA biplot saved to 'pca_biplot.png'")
     
-    # 6.4 MVP rank vs PC1
+    # 6.4 Award Share vs PC1
     plt.figure(figsize=(10, 6))
-    sns.boxplot(x='MVP_rank', y='PC1', data=pc_df)
-    plt.title('MVP Rank vs First Principal Component')
+    plt.scatter(pc_df['PC1'], pc_df['award_share'], alpha=0.7)
+    plt.title('Award Share vs First Principal Component')
+    plt.xlabel('PC1')
+    plt.ylabel('Award Share')
     plt.tight_layout()
-    plt.savefig('mvp_rank_vs_pc1.png')
-    print("MVP rank vs PC1 plot saved to 'mvp_rank_vs_pc1.png'")
+    plt.savefig('award_share_vs_pc1.png')
+    print("Award share vs PC1 plot saved to 'award_share_vs_pc1.png'")
     
-    # 7. Calculate correlation between PCs and MVP rank
-    print("\nCorrelation between principal components and MVP rank:")
+    # 7. Calculate correlation between PCs and award_share
+    print("\nCorrelation between principal components and award_share:")
     # Use only numeric columns for correlation
     numeric_cols = pc_df.select_dtypes(include=['number']).columns
-    correlations = pc_df[numeric_cols].corr()['MVP_rank'].drop('MVP_rank')  # Exclude self-correlation
+    correlations = pc_df[numeric_cols].corr()['award_share'].drop('award_share')  # Exclude self-correlation
     print(correlations)
     
     # Spearman rank correlation (better for ordinal data like ranks)
-    spearman_corr = pc_df[numeric_cols].corr(method='spearman')['MVP_rank'].drop('MVP_rank')
+    spearman_corr = pc_df[numeric_cols].corr(method='spearman')['award_share'].drop('award_share')
     print("\nSpearman rank correlation (more appropriate for rank data):")
     print(spearman_corr)
     
-    # 8. Direct feature importance - correlation between original features and MVP rank
+    # 8. Direct feature importance - correlation between original features and award_share
     print("\n" + "="*50)
-    print("DIRECT FEATURE IMPORTANCE FOR MVP RANKING")
+    print("DIRECT FEATURE IMPORTANCE FOR MVP AWARD SHARE")
     print("="*50)
     
-    # Create a combined dataset with normalized features and MVP rank
+    # Create a combined dataset with normalized features and award_share
     feature_importance_df = X_normalized.copy()
-    feature_importance_df['MVP_rank'] = df_mvp['MVP_rank'].values
+    feature_importance_df['award_share'] = df_mvp['award_share'].values
     
-    # Calculate correlations between each feature and MVP rank
+    # Calculate correlations between each feature and award_share
     feature_correlations = pd.DataFrame({
-        'Pearson': [feature_importance_df[feature].corr(feature_importance_df['MVP_rank']) for feature in features],
-        'Spearman': [feature_importance_df[feature].corr(feature_importance_df['MVP_rank'], method='spearman') for feature in features]
+        'Pearson': [feature_importance_df[feature].corr(feature_importance_df['award_share']) for feature in features],
+        'Spearman': [feature_importance_df[feature].corr(feature_importance_df['award_share'], method='spearman') for feature in features]
     }, index=features)
     
     # Take absolute values for ranking importance
@@ -234,7 +236,7 @@ try:
     feature_correlations_sorted = feature_correlations.sort_values('Spearman_abs', ascending=False)
     
     # Display top correlations
-    print("\nTop features correlated with MVP rank (by absolute Spearman correlation):")
+    print("\nTop features correlated with award_share (by absolute Spearman correlation):")
     print(feature_correlations_sorted[['Pearson', 'Spearman']].head(10))
     
     # Visualize correlations
@@ -253,7 +255,7 @@ try:
     ax = corr_data.plot(kind='barh', figsize=(12, 10), 
                          color=['#3498db', '#e74c3c'], 
                          alpha=0.7, 
-                         title='Top 15 Features Correlated with MVP Rank')
+                         title='Top 15 Features Correlated with Award Share')
     
     # Add a vertical line at zero
     plt.axvline(x=0, color='gray', linestyle='--', alpha=0.7)
@@ -264,7 +266,7 @@ try:
     # Add labels
     plt.xlabel('Correlation Coefficient')
     plt.ylabel('NBA Statistical Features')
-    plt.title('Top 15 Features Correlated with MVP Rank', fontsize=14)
+    plt.title('Top 15 Features Correlated with Award Share', fontsize=14)
     
     # Add a legend with better positioning
     plt.legend(loc='lower right', title='Correlation Type')
@@ -273,8 +275,8 @@ try:
     plt.tight_layout()
     
     # Save the visualization
-    plt.savefig('feature_correlations_with_mvp.png')
-    print("\nFeature correlations chart saved to 'feature_correlations_with_mvp.png'")
+    plt.savefig('feature_correlations_with_award_share.png')
+    print("\nFeature correlations chart saved to 'feature_correlations_with_award_share.png'")
     
     print("\nPCA Analysis Complete!")
     
