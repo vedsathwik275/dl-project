@@ -16,7 +16,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 import matplotlib.pyplot as plt
 
 # Configuration
-DATA_FILE = "NBA_Dataset_with_MVP_rank.csv"
+DATA_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 EPOCHS = 150
