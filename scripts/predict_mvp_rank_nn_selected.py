@@ -519,9 +519,9 @@ try:
     print(sample_preds.to_string(index=False))
     
     # Save model
-    print("\nSaving model...")
-    mlp_model.save("mlp_mvp_rank_selected_model")
-    print("Model saved to 'mlp_mvp_rank_selected_model'")
+    # print("\nSaving model...")
+    # mlp_model.save("mlp_mvp_rank_selected_model")
+    # print("Model saved to 'mlp_mvp_rank_selected_model'")
     
     # Save selected features for later use
     with open('selected_features.txt', 'w') as f:
