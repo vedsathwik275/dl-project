@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 
 # Configuration
-INPUT_FILE = "NBA_Dataset.csv"
-OUTPUT_FILE = "NBA_Dataset_with_MVP_rank.csv"
-TOP_RANKS = 5  # Number of top MVP candidates to rank (1-5)
+INPUT_FILE = "../data/NBA_Dataset.csv"
+OUTPUT_FILE = "../data/NBA_Dataset_with_MVP_rank.csv"
+TOP_RANKS = 7  # Number of top MVP candidates to rank (1-7)
 
 print(f"{'='*20} Creating MVP Rankings {'='*20}")
 
@@ -44,8 +44,8 @@ try:
     df['temp_rank'] = df.groupby('season')['award_share'].rank(method='min', ascending=False)
     
     # Create the MVP_rank column:
-    # - Players ranked 1-5 get their actual rank
-    # - Players ranked >5 or with 0 award_share get NaN
+    # - Players ranked 1-7 get their actual rank
+    # - Players ranked >7 or with 0 award_share get NaN
     df['MVP_rank'] = np.where(
         (df['temp_rank'] <= TOP_RANKS) & (df['award_share'] > 0),
         df['temp_rank'],

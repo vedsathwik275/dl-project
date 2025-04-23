@@ -1,11 +1,11 @@
 import pandas as pd
 
 # Define file paths
-input_csv = "NBA_Dataset.csv"
+input_csv = "../data/NBA_Dataset.csv"
 # Output files for eras
-physical_era_output = "physical_era_data.csv"
-isolation_era_output = "isolation_era_data.csv"
-analytics_era_output = "analytics_era_data.csv"
+physical_era_output = "../data/physical_era_data.csv"
+isolation_era_output = "../data/isolation_era_data.csv"
+analytics_era_output = "../data/analytics_era_data.csv"
 
 # Define filtering thresholds
 min_games = 58

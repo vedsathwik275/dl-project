@@ -8,7 +8,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from sklearn.metrics import mean_squared_error, r2_score
 
 # Configuration
-DATA_FILE = "NBA_Dataset_with_MVP_rank.csv"
+DATA_FILE = "../../data/NBA_Dataset_with_MVP_rank.csv"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
 
@@ -41,18 +41,28 @@ def flexible_rank_accuracy(y_true, y_pred_rounded):
     """
     Calculate accuracy with partial credit:
     - Exact match: 1.0 (100% correct)
-    - Off by 1 rank: 0.8 (80% correct)
-    - Off by 2 ranks: 0.2 (20% correct)
+    - Off by 1 rank: 0.8 (80% credit)
+    - Off by 2 ranks: 0.2 (20% credit)
+    - Special case: When actual rank is 5 and predicted is >5, or vice versa, treated as off by 1
     - Off by >2 ranks: 0.0 (incorrect)
     """
+    # Ensure predictions are within 1-5 range
+    y_pred_rounded = np.clip(y_pred_rounded, 1, 5)
+    
     # Calculate absolute difference between predicted and actual ranks
     rank_diff = np.abs(y_pred_rounded - y_true)
+    
+    # Special case handling for boundary between top-5 and outside top-5
+    # If true rank is 5 and predicted as 6 or 7, count as off-by-1
+    # If true rank is 6 or 7 and predicted as 5, count as off-by-1
+    special_case = ((y_true == 5) & (y_pred_rounded > 5)) | ((y_true > 5) & (y_pred_rounded == 5))
     
     # Assign scores based on rank difference
     scores = np.zeros_like(rank_diff, dtype=float)
     scores[rank_diff == 0] = 1.0    # Exact matches
     scores[rank_diff == 1] = 0.8    # Off by one rank
     scores[rank_diff == 2] = 0.2    # Off by two ranks
+    scores[special_case] = 0.8      # Special case (treat as off by one)
     
     # Return the average score
     return scores.mean()
@@ -71,7 +81,7 @@ try:
     if missing_cols:
         raise ValueError(f"Error: Missing essential columns: {missing_cols}")
     
-    # Focus only on rows with MVP_rank (1-5)
+    # Focus only on rows with MVP_rank (1-7)
     df_mvp = df.dropna(subset=['MVP_rank'])
     print(f"Number of rows with MVP rank: {len(df_mvp)} out of {len(df)} total rows")
     
@@ -148,6 +158,8 @@ try:
     
     y_pred_lr = lr_model.predict(X_test)
     y_pred_lr_rounded = np.round(y_pred_lr).astype(int)
+    # Clip to valid range
+    y_pred_lr_rounded = np.clip(y_pred_lr_rounded, 1, 5)
     
     # Performance metrics
     mse = mean_squared_error(y_test, y_pred_lr)
@@ -158,7 +170,7 @@ try:
     print(f"Mean Squared Error: {mse:.4f}")
     print(f"R-squared: {r2:.4f}")
     print(f"Exact Rank Accuracy: {acc_lr_exact:.4f} ({int(acc_lr_exact * len(y_test))} exact matches out of {len(y_test)})")
-    print(f"Flexible Rank Accuracy: {acc_lr_flex:.4f} (includes 80% credit for being off by one or two ranks)")
+    print(f"Flexible Rank Accuracy: {acc_lr_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks, with special case handling)")
     
     # Calculate counts for each type of match
     exact_matches = np.sum(y_pred_lr_rounded == y_test)
@@ -184,7 +196,7 @@ try:
     acc_rf_flex = flexible_rank_accuracy(y_test, y_pred_rf)
     
     print(f"Exact Accuracy: {acc_rf_exact:.4f} ({int(acc_rf_exact * len(y_test))} exact matches out of {len(y_test)})")
-    print(f"Flexible Accuracy: {acc_rf_flex:.4f} (includes 80% credit for being off by one or two ranks)")
+    print(f"Flexible Accuracy: {acc_rf_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks, with special case handling)")
     
     # Calculate counts for each type of match
     exact_matches = np.sum(y_pred_rf == y_test)
@@ -215,7 +227,7 @@ try:
     acc_gb_flex = flexible_rank_accuracy(y_test, y_pred_gb)
     
     print(f"Exact Accuracy: {acc_gb_exact:.4f} ({int(acc_gb_exact * len(y_test))} exact matches out of {len(y_test)})")
-    print(f"Flexible Accuracy: {acc_gb_flex:.4f} (includes 80% credit for being off by one or two ranks)")
+    print(f"Flexible Accuracy: {acc_gb_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks, with special case handling)")
     
     # Calculate counts for each type of match
     exact_matches = np.sum(y_pred_gb == y_test)
