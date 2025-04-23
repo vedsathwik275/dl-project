@@ -361,6 +361,10 @@ try:
     y_pred_mlp_rounded = np.round(y_pred_mlp).astype(int)
     y_pred_mlp_rounded = np.clip(y_pred_mlp_rounded, 1, 5)  # Ensure predictions are between 1-5
     
+    # Flatten predictions to ensure 1D arrays for metrics calculation
+    y_pred_mlp = y_pred_mlp.flatten()
+    y_pred_mlp_rounded = y_pred_mlp_rounded.flatten()
+    
     # Performance metrics
     mse_mlp = mean_squared_error(y_test, y_pred_mlp)
     r2_mlp = r2_score(y_test, y_pred_mlp)
@@ -400,7 +404,7 @@ try:
     test_data['LR_pred'] = y_pred_lr_rounded
     test_data['RF_pred'] = y_pred_rf
     test_data['GB_pred'] = y_pred_gb
-    test_data['MLP_pred'] = y_pred_mlp_rounded.flatten()
+    test_data['MLP_pred'] = y_pred_mlp_rounded  # Already flattened above
     
     # Display a sample of predictions
     sample_preds = test_data[['season', 'player', 'MVP_rank', 'LR_pred', 'RF_pred', 'GB_pred', 'MLP_pred']].head(10)
