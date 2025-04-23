@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, confusion_matrix
+import seaborn as sns
 
 # Neural network imports
 import tensorflow as tf
@@ -162,6 +163,126 @@ def get_prediction_breakdown(y_true, y_pred):
         'off_by_two': off_by_two,
         'off_by_more': off_by_more
     }
+
+# Function to save detailed prediction results
+def save_detailed_predictions(df, test_indices, y_pred, y_pred_rounded, selected_features, feature_correlations):
+    """
+    Save comprehensive prediction results to CSV with additional stats
+    """
+    # Create results dataframe
+    results_df = df.iloc[test_indices].copy()
+    
+    # Add predictions
+    results_df['predicted_rank_raw'] = y_pred
+    results_df['predicted_rank'] = y_pred_rounded
+    
+    # Calculate error
+    results_df['rank_error'] = results_df['predicted_rank'] - results_df['MVP_rank']
+    results_df['abs_rank_error'] = np.abs(results_df['rank_error'])
+    
+    # Add prediction quality labels
+    conditions = [
+        (results_df['abs_rank_error'] == 0),
+        (results_df['abs_rank_error'] == 1),
+        (results_df['abs_rank_error'] == 2),
+        (results_df['abs_rank_error'] > 2)
+    ]
+    labels = ['Exact Match', 'Off by 1', 'Off by 2', 'Off by >2']
+    results_df['prediction_quality'] = np.select(conditions, labels)
+    
+    # Sort by season (descending) and MVP rank (ascending)
+    results_df = results_df.sort_values(['season', 'MVP_rank'], ascending=[False, True])
+    
+    # Save all results to CSV
+    results_df.to_csv('mvp_rank_prediction_results.csv', index=False)
+    
+    # Create a separate dataframe with just the important columns for easy viewing
+    summary_df = results_df[['season', 'player', 'MVP_rank', 'predicted_rank', 'rank_error', 'prediction_quality']]
+    summary_df.to_csv('mvp_rank_prediction_summary.csv', index=False)
+    
+    # Generate yearly summary - prediction accuracy by season
+    yearly_summary = results_df.groupby('season').apply(
+        lambda x: pd.Series({
+            'num_players': len(x),
+            'exact_matches': sum(x['abs_rank_error'] == 0),
+            'off_by_one': sum(x['abs_rank_error'] == 1),
+            'off_by_two': sum(x['abs_rank_error'] == 2),
+            'off_by_more': sum(x['abs_rank_error'] > 2),
+            'accuracy': sum(x['abs_rank_error'] == 0) / len(x),
+            'flexible_accuracy': flexible_rank_accuracy(x['MVP_rank'], x['predicted_rank']),
+            'mse': mean_squared_error(x['MVP_rank'], x['predicted_rank'])
+        })
+    ).reset_index()
+    
+    yearly_summary.to_csv('mvp_rank_yearly_accuracy.csv', index=False)
+    
+    return results_df
+
+# Function to create additional visualizations
+def create_visualizations(results_df, test_data, y_test, y_pred_rounded, feature_correlations, selected_features):
+    """
+    Create additional visualizations for model evaluation
+    """
+    # 1. Confusion matrix
+    plt.figure(figsize=(10, 8))
+    cm = confusion_matrix(y_test, y_pred_rounded)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=range(1, 6), 
+                yticklabels=range(1, 6))
+    plt.xlabel('Predicted Rank')
+    plt.ylabel('True Rank')
+    plt.title('Confusion Matrix of MVP Rank Predictions')
+    plt.tight_layout()
+    plt.savefig('mvp_rank_confusion_matrix.png')
+    
+    # 2. Distribution of prediction errors
+    plt.figure(figsize=(10, 6))
+    sns.countplot(x='rank_error', data=results_df, palette='viridis')
+    plt.xlabel('Prediction Error (Predicted - Actual)')
+    plt.ylabel('Count')
+    plt.title('Distribution of MVP Rank Prediction Errors')
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('mvp_rank_error_distribution.png')
+    
+    # 3. Prediction accuracy by season
+    yearly_accuracy = results_df.groupby('season')['abs_rank_error'].apply(
+        lambda x: sum(x == 0) / len(x)
+    ).reset_index()
+    yearly_accuracy.columns = ['season', 'accuracy']
+    
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x='season', y='accuracy', data=yearly_accuracy, palette='viridis')
+    plt.xlabel('Season')
+    plt.ylabel('Accuracy (Exact Matches)')
+    plt.title('MVP Rank Prediction Accuracy by Season')
+    plt.xticks(rotation=45)
+    plt.ylim(0, 1)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('mvp_rank_accuracy_by_season.png')
+    
+    # 4. Actual vs Predicted scatter
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(
+        results_df['MVP_rank'], 
+        results_df['predicted_rank'],
+        c=results_df['season'],
+        cmap='viridis',
+        alpha=0.7,
+        s=100
+    )
+    
+    # Add perfect prediction line
+    plt.plot([1, 5], [1, 5], 'r--', alpha=0.7)
+    
+    plt.colorbar(scatter, label='Season')
+    plt.xlabel('Actual MVP Rank')
+    plt.ylabel('Predicted MVP Rank')
+    plt.title('Actual vs Predicted MVP Ranks')
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('mvp_rank_actual_vs_predicted.png')
 
 print(f"{'='*20} MVP Rank Prediction with Feature Selection {'='*20}")
 
@@ -406,6 +527,32 @@ try:
     with open('selected_features.txt', 'w') as f:
         f.write('\n'.join(selected_features))
     print(f"Selected features saved to 'selected_features.txt'")
+    
+    # Save detailed predictions and create additional visualizations
+    print("\nSaving detailed prediction results...")
+    results_df = save_detailed_predictions(df_mvp, test_indices, y_pred_mlp, y_pred_mlp_rounded, 
+                                          selected_features, feature_correlations)
+    
+    # Create additional visualizations
+    print("Creating additional visualizations...")
+    create_visualizations(results_df, test_data, y_test, y_pred_mlp_rounded, 
+                         feature_correlations, selected_features)
+    
+    # Print information about where to find the results
+    print("\nDetailed Results Files:")
+    print("- Complete prediction results: 'mvp_rank_prediction_results.csv'")
+    print("- Prediction summary: 'mvp_rank_prediction_summary.csv'")
+    print("- Yearly accuracy summary: 'mvp_rank_yearly_accuracy.csv'")
+    print("\nVisualization Files:")
+    print("- Confusion matrix: 'mvp_rank_confusion_matrix.png'")
+    print("- Error distribution: 'mvp_rank_error_distribution.png'")
+    print("- Seasonal accuracy: 'mvp_rank_accuracy_by_season.png'")
+    print("- Actual vs Predicted: 'mvp_rank_actual_vs_predicted.png'")
+    
+    # Display all predictions
+    print(f"\n{'-'*10} All Test Set Predictions {'-'*10}")
+    all_preds = results_df[['season', 'player', 'MVP_rank', 'predicted_rank', 'rank_error', 'prediction_quality']]
+    print(all_preds.to_string(index=False))
     
 except FileNotFoundError:
     print(f"Error: The file {DATA_FILE} was not found.")
