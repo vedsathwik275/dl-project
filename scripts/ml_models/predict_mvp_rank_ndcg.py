@@ -548,13 +548,16 @@ try:
     NUM_TRAIN_SEASONS = 33
     NUM_TEST_SEASONS = len(seasons) - NUM_TRAIN_SEASONS
     
-    # Randomly select seasons for training and testing
+    # Always include 2005 in the training set, then randomly select the rest
     np.random.seed(RANDOM_STATE)  # For reproducibility
-    train_seasons = np.random.choice(seasons, size=NUM_TRAIN_SEASONS, replace=False)
+    available_seasons = np.array([s for s in seasons if s != 2005])  # Remove 2005 from random selection pool
+    random_train_seasons = np.random.choice(available_seasons, size=NUM_TRAIN_SEASONS-1, replace=False)  # Select one less
+    train_seasons = np.append(random_train_seasons, [2005])  # Add 2005 to training set
     test_seasons = np.array([season for season in seasons if season not in train_seasons])
     
     print(f"Training seasons: {train_seasons}")
     print(f"Testing seasons: {test_seasons}")
+    print(f"Confirmed 2005 in training set: {2005 in train_seasons}")
     
     # Create train/test masks based on seasons
     train_mask = df_processed['season'].isin(train_seasons)
