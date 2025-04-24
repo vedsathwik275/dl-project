@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, ndcg_score
+from sklearn.preprocessing import StandardScaler
 import seaborn as sns
 import os
 import matplotlib.pyplot as plt
@@ -14,7 +15,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 
 # Configuration
-DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
+DATA_FILE = "../data/filtered_nba_data.csv"
 OUTPUT_DIR = "../data/simple_nn_evaluation_results_ndcg"
 PICS_DIR = "../pics/simple_ndcg"
 
@@ -27,12 +28,6 @@ RANDOM_STATE = 423
 EPOCHS = 200
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
-
-# Use specific features for award_share prediction
-award_share_features = [
-    'vorp', 'bpm', 'ws', 'ws_per_48', 'pts_per_g',
-    'ft_per_g', 'fg_per_g', 'fta_per_g', 'fg2_per_g', 'fga_per_g'
-]
 
 # =============== SIMPLE MODEL BUILDING FUNCTION ===============
 
@@ -273,8 +268,20 @@ def main():
         # Handle missing values in award_share - set to 0 for players who didn't receive votes
         df['award_share'] = df['award_share'].fillna(0)
         
-        # Create feature matrix with only selected features
-        X = df[award_share_features]
+        # Identify non-statistical columns to exclude from normalization
+        non_stat_columns = ['player', 'team', 'pos', 'season', 'award_share', 'MVP_rank', 'MVP_winner']
+        
+        # Get all feature columns (excluding the non-statistical ones)
+        feature_columns = [col for col in df.columns if col not in non_stat_columns]
+        print(f"Number of features to use: {len(feature_columns)}")
+        
+        # Normalize statistical features using StandardScaler
+        print(f"Normalizing {len(feature_columns)} statistical features...")
+        scaler = StandardScaler()
+        df[feature_columns] = scaler.fit_transform(df[feature_columns])
+        
+        # Create feature matrix with all statistical features
+        X = df[feature_columns]
         
         # Target variable - award_share
         y = df['award_share']
@@ -360,6 +367,28 @@ def main():
         plt.tight_layout()
         plt.savefig(f'{PICS_DIR}/training_history.png')
         
+        # Plot feature importance
+        print("\nCalculating feature importance...")
+        # Create a basic feature importance visualization based on weights of the first layer
+        weights = simple_model.layers[0].get_weights()[0]
+        importance = np.mean(np.abs(weights), axis=1)
+        
+        # Create a DataFrame with feature importance
+        importance_df = pd.DataFrame({
+            'Feature': feature_columns,
+            'Importance': importance
+        })
+        
+        # Sort by importance
+        importance_df = importance_df.sort_values('Importance', ascending=False)
+        
+        # Plot top 20 features
+        plt.figure(figsize=(12, 8))
+        sns.barplot(x='Importance', y='Feature', data=importance_df.head(20))
+        plt.title('Top 20 Features by Importance')
+        plt.tight_layout()
+        plt.savefig(f'{PICS_DIR}/feature_importance.png')
+        
         # Make predictions
         print(f"\n{'-'*20} Prediction and Evaluation {'-'*20}")
         y_pred = simple_model.predict(X_test).flatten()
@@ -398,6 +427,30 @@ def main():
         # Save top5 comparison
         top5_comparison = save_top5_comparison(results_df)
         
+        # Save important information to a summary file
+        with open(f"{OUTPUT_DIR}/model_summary.txt", "w") as f:
+            f.write(f"Simple Neural Network MVP Prediction Summary\n")
+            f.write(f"================================================\n\n")
+            f.write(f"Dataset: {DATA_FILE}\n")
+            f.write(f"Number of features: {len(feature_columns)}\n")
+            f.write(f"Training samples: {X_train.shape[0]}\n")
+            f.write(f"Test samples: {X_test.shape[0]}\n\n")
+            
+            f.write(f"Model Architecture:\n")
+            f.write(f"- Input layer: Dense(32, relu)\n")
+            f.write(f"- Hidden layer: Dense(16, relu)\n")
+            f.write(f"- Output layer: Dense(1, sigmoid)\n\n")
+            
+            f.write(f"Performance Metrics:\n")
+            f.write(f"- MSE: {mse:.4f}\n")
+            f.write(f"- MAE: {mae:.4f}\n")
+            f.write(f"- R²: {r2:.4f}\n")
+            f.write(f"- Average NDCG@5: {average_ndcg:.4f}\n\n")
+            
+            f.write(f"Top 10 Most Important Features:\n")
+            for i, row in importance_df.head(10).iterrows():
+                f.write(f"- {row['Feature']}: {row['Importance']:.4f}\n")
+            
         print(f"\n{'='*20} Simple Model Evaluation Complete {'='*20}")
         print("Sometimes, less is more. The simple model often generalizes better.")
         print(f"Results saved to '{OUTPUT_DIR}/' directory")
