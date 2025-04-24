@@ -83,6 +83,20 @@ class SqueezeLayer(Layer):
         config.update({"axis": self.axis})
         return config
 
+class StackLayer(Layer):
+    """Wrapper for tf.stack as a Keras layer"""
+    def __init__(self, axis):
+        super(StackLayer, self).__init__()
+        self.axis = axis
+        
+    def call(self, inputs):
+        return tf.stack(inputs, axis=self.axis)
+    
+    def get_config(self):
+        config = super(StackLayer, self).get_config()
+        config.update({"axis": self.axis})
+        return config
+
 # =============== TRANSFORMER COMPONENTS ===============
 
 class TransformerBlock(Layer):
@@ -273,15 +287,13 @@ def build_ensemble_model(input_shape, transformer_dim=96, mlp_dim=128, num_heads
     m_output = Dropout(dropout_rate)(m_output)
     
     # ---- SELF-NORMALIZED ATTENTION BRANCH ----
-    # Create a sequence of feature transformations for attention
-    attention_input = tf.stack(
-        [
-            Dense(32, activation='relu')(inputs),
-            Dense(32, activation='tanh')(inputs),
-            Dense(32, activation='sigmoid')(inputs)
-        ],
-        axis=1
-    )
+    # Create transformations for attention
+    attn_relu = Dense(32, activation='relu')(inputs)
+    attn_tanh = Dense(32, activation='tanh')(inputs)
+    attn_sigmoid = Dense(32, activation='sigmoid')(inputs)
+
+    # Use the wrapper layer instead of direct tf.stack
+    attention_input = StackLayer(axis=1)([attn_relu, attn_tanh, attn_sigmoid])
     
     # Apply self-normalized attention
     attention_output, attention_weights = SelfNormalizedAttention()(attention_input)
