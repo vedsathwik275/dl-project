@@ -27,7 +27,7 @@ os.makedirs(PICS_DIR, exist_ok=True)
 RANDOM_STATE = 423
 EPOCHS = 200
 BATCH_SIZE = 64
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0005  # Reduced learning rate to prevent NaN loss
 
 # =============== SIMPLE MODEL BUILDING FUNCTION ===============
 
@@ -57,9 +57,15 @@ def build_simple_model(input_shape):
         Dense(1, activation='sigmoid')
     ])
     
-    # Compile with standard MSE loss
+    # Compile with standard MSE loss and gradient clipping to prevent NaN loss
+    optimizer = Adam(
+        learning_rate=LEARNING_RATE, 
+        clipnorm=1.0,  # Clip gradients to prevent explosion
+        clipvalue=0.5  # Also clip by value
+    )
+    
     model.compile(
-        optimizer=Adam(learning_rate=LEARNING_RATE),
+        optimizer=optimizer,
         loss='mse',
         metrics=['mae']
     )
@@ -396,9 +402,12 @@ def main():
         weights = simple_model.layers[0].get_weights()[0]
         importance = np.mean(np.abs(weights), axis=1)
         
+        # Get all feature names including one-hot encoded features
+        all_feature_names = list(X.columns)
+        
         # Create a DataFrame with feature importance
         importance_df = pd.DataFrame({
-            'Feature': feature_columns,
+            'Feature': all_feature_names,
             'Importance': importance
         })
         
@@ -411,6 +420,9 @@ def main():
         plt.title('Top 20 Features by Importance')
         plt.tight_layout()
         plt.savefig(f'{PICS_DIR}/feature_importance.png')
+        
+        # Also save full feature importance to CSV
+        importance_df.to_csv(f'{OUTPUT_DIR}/feature_importance.csv', index=False)
         
         # Make predictions
         print(f"\n{'-'*20} Prediction and Evaluation {'-'*20}")
@@ -455,7 +467,8 @@ def main():
             f.write(f"Simple Neural Network MVP Prediction Summary\n")
             f.write(f"================================================\n\n")
             f.write(f"Dataset: {DATA_FILE}\n")
-            f.write(f"Number of features: {len(feature_columns)}\n")
+            f.write(f"Number of numeric features: {len(feature_columns)}\n")
+            f.write(f"Number of total features (after encoding): {X.shape[1]}\n")
             f.write(f"Training samples: {X_train.shape[0]}\n")
             f.write(f"Test samples: {X_test.shape[0]}\n\n")
             
@@ -463,6 +476,12 @@ def main():
             f.write(f"- Input layer: Dense(32, relu)\n")
             f.write(f"- Hidden layer: Dense(16, relu)\n")
             f.write(f"- Output layer: Dense(1, sigmoid)\n\n")
+            
+            f.write(f"Training Configuration:\n")
+            f.write(f"- Learning rate: {LEARNING_RATE}\n")
+            f.write(f"- Batch size: {BATCH_SIZE}\n")
+            f.write(f"- Gradient clipping norm: 1.0\n")
+            f.write(f"- Gradient clipping value: 0.5\n\n")
             
             f.write(f"Performance Metrics:\n")
             f.write(f"- MSE: {mse:.4f}\n")
