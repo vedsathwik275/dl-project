@@ -673,7 +673,7 @@ def train_model_with_weighting(model, X_train, y_train, epochs, batch_size, vali
     sample_weights = np.ones(len(y_train))
     
     # Identify vote getters (non-zero award shares)
-    vote_getters = y_train > 0
+    vote_getters = (y_train > 0).values  # Convert to numpy array
     
     # Calculate class ratio for balancing
     n_non_vote = np.sum(~vote_getters)
@@ -681,11 +681,12 @@ def train_model_with_weighting(model, X_train, y_train, epochs, batch_size, vali
     vote_weight = n_non_vote / n_vote if n_vote > 0 else 1.0
     
     # Set higher weights for vote getters - the higher their award share, the higher the weight
+    y_train_values = y_train.values  # Convert to numpy array
     for i in range(len(y_train)):
         if vote_getters[i]:
             # Scale weight by award share value (so higher shares get higher weights)
             # Minimum weight is vote_weight, max is vote_weight * 10 for award_share=1.0
-            sample_weights[i] = vote_weight * (1.0 + 9.0 * y_train[i])
+            sample_weights[i] = vote_weight * (1.0 + 9.0 * y_train_values[i])
     
     print(f"Training with weighted samples - Vote getters weight range: {vote_weight:.2f} to {vote_weight * 10:.2f}")
     
