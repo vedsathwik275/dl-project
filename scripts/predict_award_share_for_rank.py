@@ -129,11 +129,11 @@ def save_prediction_results(df, test_indices, y_test, y_pred):
     results_df = results_df.sort_values(['season', 'award_share'], ascending=[False, False])
     
     # Save all results to CSV
-    results_df.to_csv('award_share_prediction_results.csv', index=False)
+    results_df.to_csv('../data/award_share_prediction_results.csv', index=False)
     
     # Create a separate summary for just vote-getters
     vote_getters_df = results_df[results_df['received_votes']]
-    vote_getters_df.to_csv('award_share_vote_getters_prediction.csv', index=False)
+    vote_getters_df.to_csv('../data/award_share_vote_getters_prediction.csv', index=False)
     
     # Generate summary stats by season
     yearly_summary = results_df.groupby('season').apply(
@@ -146,7 +146,7 @@ def save_prediction_results(df, test_indices, y_test, y_pred):
         })
     ).reset_index()
     
-    yearly_summary.to_csv('award_share_yearly_metrics.csv', index=False)
+    yearly_summary.to_csv('../data/award_share_yearly_metrics.csv', index=False)
     
     return results_df
 
@@ -167,7 +167,7 @@ def create_visualizations(results_df):
     plt.title('Distribution of Award Share Prediction Errors')
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_error_distribution.png')
+    plt.savefig('../pics/award_share_error_distribution.png')
     
     # 2. Prediction accuracy by season
     plt.figure(figsize=(12, 6))
@@ -183,7 +183,7 @@ def create_visualizations(results_df):
     plt.xticks(rotation=45)
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_mse_by_season.png')
+    plt.savefig('../pics/award_share_mse_by_season.png')
     
     # 3. Actual vs Predicted award_share scatter (all players)
     plt.figure(figsize=(10, 8))
@@ -206,7 +206,7 @@ def create_visualizations(results_df):
     plt.title('Actual vs Predicted Award Share')
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_actual_vs_predicted.png')
+    plt.savefig('../pics/award_share_actual_vs_predicted.png')
     
     # 4. Actual vs Predicted award_share scatter (only vote getters for clarity)
     plt.figure(figsize=(10, 8))
@@ -229,7 +229,7 @@ def create_visualizations(results_df):
     plt.title('Actual vs Predicted Award Share (Vote Getters Only)')
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_vote_getters_actual_vs_predicted.png')
+    plt.savefig('../pics/award_share_vote_getters_actual_vs_predicted.png')
     
     # 5. Feature importance 
     # Can't directly get feature importance from neural network
@@ -243,7 +243,7 @@ def create_visualizations(results_df):
     plt.title('Feature Correlation with Award Share')
     plt.xlabel('Correlation Coefficient')
     plt.tight_layout()
-    plt.savefig('feature_correlation_with_award_share.png')
+    plt.savefig('../pics/feature_correlation_with_award_share.png')
 
 # Main execution
 print(f"{'='*20} MVP Award Share Prediction {'='*20}")
@@ -422,7 +422,7 @@ try:
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('award_share_training_history.png')
+    plt.savefig('../pics/award_share_training_history.png')
     print("Training history saved to 'award_share_training_history.png'")
     
     # Make predictions
