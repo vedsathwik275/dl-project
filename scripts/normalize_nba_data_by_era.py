@@ -15,8 +15,14 @@ ERAS = {
     "Analytics/3PT": (2011, 2023)  # Adjust end year as needed
 }
 
-# Statistical features to normalize
+# Only normalize the features used for award share prediction (from PCA analysis)
 STAT_FEATURES = [
+    'vorp', 'bpm', 'ws', 'ws_per_48', 'pts_per_g',
+    'ft_per_g', 'fg_per_g', 'fta_per_g', 'fg2_per_g', 'fga_per_g'
+]
+
+# Full list of statistical features (for reference but not all will be normalized)
+ALL_STAT_FEATURES = [
     'g', 'gs', 'mp_per_g',
     'fg_per_g', 'fga_per_g', 
     'fg3_per_g', 'fg3a_per_g',
@@ -51,6 +57,10 @@ def normalize_stats():
         df = pd.read_csv(INPUT_FILE)
         print(f"Loaded data with shape: {df.shape}")
         
+        print(f"\nOnly normalizing the following {len(STAT_FEATURES)} features used for award share prediction:")
+        for i, feature in enumerate(STAT_FEATURES):
+            print(f"  {i+1}. {feature}")
+        
         # Check if all required features exist
         missing_features = [col for col in STAT_FEATURES if col not in df.columns]
         if missing_features:
@@ -65,6 +75,11 @@ def normalize_stats():
         
         # Convert numeric columns properly
         for col in STAT_FEATURES:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Also convert other numerical features even if we're not normalizing them
+        for col in set(ALL_STAT_FEATURES) - set(STAT_FEATURES):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
@@ -87,9 +102,6 @@ def normalize_stats():
         
         # Add era column
         df_normalized['era'] = df['era']
-        
-        # Store original values in a separate DataFrame for validation
-        df_original = df[STAT_FEATURES].copy()
         
         # Normalize within each season
         print("\nNormalizing statistics within each season...")
@@ -152,9 +164,8 @@ def normalize_stats():
         # Generate visualizations to compare original vs. normalized distributions
         print("\nGenerating visualization of original vs. normalized distributions...")
         
-        # Select a sample of important features to visualize
-        viz_features = ['pts_per_g', 'fg3_per_g', 'ast_per_g', 'ws', 'vorp']
-        viz_features = [f for f in viz_features if f in STAT_FEATURES]
+        # Visualize all the features we normalized
+        viz_features = STAT_FEATURES.copy()
         
         for feature in viz_features:
             norm_feature = f"norm_{feature}"
@@ -204,13 +215,13 @@ def normalize_stats():
 
 if __name__ == "__main__":
     print("=" * 80)
-    print("NBA Data Normalization by Season and Era")
+    print("NBA Data Normalization by Season and Era (Award Share Features Only)")
     print("=" * 80)
     
     success = normalize_stats()
     
     if success:
-        print("\nNormalization complete! The data has been normalized within each season.")
+        print("\nNormalization complete! Only the award share prediction features have been normalized within each season.")
         print("Each normalized feature has prefix 'norm_' in the output file.")
         print("\nTwo output files were created:")
         print(f"1. {OUTPUT_FILE} - Contains original features plus normalized versions")

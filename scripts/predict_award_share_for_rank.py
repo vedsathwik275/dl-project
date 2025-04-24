@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score, confusion_matrix
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import seaborn as sns
 
 # Neural network imports
@@ -43,37 +43,6 @@ award_share_features = [
     'vorp', 'bpm', 'ws', 'ws_per_48', 'pts_per_g',
     'ft_per_g', 'fg_per_g', 'fta_per_g', 'fg2_per_g', 'fga_per_g'
 ]
-
-# Flexible accuracy function that gives partial credit for being off by one or two ranks
-def flexible_rank_accuracy(y_true, y_pred_rounded):
-    """
-    Calculate accuracy with partial credit:
-    - Exact match: 1.0 (100% correct)
-    - Off by 1 rank: 0.8 (80% credit)
-    - Off by 2 ranks: 0.2 (20% credit)
-    - Special case: When actual rank is 5 and predicted is >5, or vice versa, treated as off by 1
-    - Off by >2 ranks: 0.0 (incorrect)
-    """
-    # Ensure predictions are within 1-5 range
-    y_pred_rounded = np.clip(y_pred_rounded, 1, 5)
-    
-    # Calculate absolute difference between predicted and actual ranks
-    rank_diff = np.abs(y_pred_rounded - y_true)
-    
-    # Special case handling for boundary between top-5 and outside top-5
-    # If true rank is 5 and predicted as 6 or 7, count as off-by-1
-    # If true rank is 6 or 7 and predicted as 5, count as off-by-1
-    special_case = ((y_true == 5) & (y_pred_rounded > 5)) | ((y_true > 5) & (y_pred_rounded == 5))
-    
-    # Assign scores based on rank difference
-    scores = np.zeros_like(rank_diff, dtype=float)
-    scores[rank_diff == 0] = 1.0    # Exact matches
-    scores[rank_diff == 1] = 0.8    # Off by one rank
-    scores[rank_diff == 2] = 0.2    # Off by two ranks
-    scores[special_case] = 0.8      # Special case (treat as off by one)
-    
-    # Return the average score
-    return scores.mean()
 
 # Function to build improved MLP model with residual connections and better architecture
 def build_mlp_model(input_shape):
@@ -138,171 +107,108 @@ def build_mlp_model(input_shape):
     
     return model
 
-# Function to convert award_share predictions to ranks within each season
-def convert_to_ranks(df, pred_col='predicted_award_share'):
-    """
-    Convert award_share predictions to ranks (1-5) within each season
-    """
-    # Create a copy to avoid modifying the original
-    ranked_df = df.copy()
-    
-    # Group by season and rank the predictions (higher award_share = better rank)
-    ranked_df['predicted_rank'] = ranked_df.groupby('season')[pred_col].rank(ascending=False, method='first')
-    
-    # Set all ranks above 5 to just be rank 6 for easier analysis
-    ranked_df.loc[ranked_df['predicted_rank'] > 5, 'predicted_rank'] = 6
-    
-    # Apply and reset index to avoid 'season' being both index and column
-    ranked_df = ranked_df.reset_index(drop=True)
-    
-    # Convert to integer
-    ranked_df['predicted_rank'] = ranked_df['predicted_rank'].astype(int)
-    
-    return ranked_df
-
-# Function to get prediction breakdown
-def get_prediction_breakdown(y_true, y_pred):
-    exact_matches = np.sum(y_pred == y_true)
-    off_by_one = np.sum(np.abs(y_pred - y_true) == 1)
-    off_by_two = np.sum(np.abs(y_pred - y_true) == 2)
-    off_by_more = len(y_true) - exact_matches - off_by_one - off_by_two
-    
-    return {
-        'exact': exact_matches,
-        'off_by_one': off_by_one, 
-        'off_by_two': off_by_two,
-        'off_by_more': off_by_more
-    }
-
 # Function to save detailed prediction results
-def save_detailed_predictions(df, full_results_df):
+def save_prediction_results(df, test_indices, y_test, y_pred):
     """
-    Save comprehensive prediction results to CSV with additional stats
+    Save comprehensive prediction results to CSV with basic stats
     """
-    # Calculate error (only for players who received votes - have actual ranks 1-5)
-    results_df = full_results_df.copy()
+    # Create results dataframe
+    results_df = df.iloc[test_indices].copy()
+    
+    # Add predictions
+    results_df['predicted_award_share'] = y_pred
+    
+    # Calculate error
+    results_df['award_share_error'] = results_df['predicted_award_share'] - results_df['award_share']
+    results_df['abs_error'] = np.abs(results_df['award_share_error'])
     
     # Create a flag for vote-getters
     results_df['received_votes'] = results_df['award_share'] > 0
     
-    # Calculate rank error only for those who received votes (actual ranks 1-5)
-    vote_getters_mask = results_df['received_votes']
-    results_df.loc[vote_getters_mask, 'rank_error'] = results_df.loc[vote_getters_mask, 'predicted_rank'] - results_df.loc[vote_getters_mask, 'MVP_rank']
-    results_df.loc[vote_getters_mask, 'abs_rank_error'] = np.abs(results_df.loc[vote_getters_mask, 'rank_error'])
-    
-    # Non-vote getters have no meaningful rank error since they didn't have a real rank
-    results_df.loc[~vote_getters_mask, 'rank_error'] = np.nan
-    results_df.loc[~vote_getters_mask, 'abs_rank_error'] = np.nan
-    
-    # Add prediction quality labels - only for vote getters
-    conditions = [
-        (vote_getters_mask) & (results_df['abs_rank_error'] == 0),
-        (vote_getters_mask) & (results_df['abs_rank_error'] == 1),
-        (vote_getters_mask) & (results_df['abs_rank_error'] == 2),
-        (vote_getters_mask) & (results_df['abs_rank_error'] > 2)
-    ]
-    labels = ['Exact Match', 'Off by 1', 'Off by 2', 'Off by >2']
-    results_df['prediction_quality'] = np.select(conditions, labels, default='N/A (No Votes)')
-    
-    # Sort by season (descending) and predicted rank (ascending)
-    results_df = results_df.sort_values(['season', 'predicted_rank'], ascending=[False, True])
+    # Sort by season (descending) and actual award share (descending)
+    results_df = results_df.sort_values(['season', 'award_share'], ascending=[False, False])
     
     # Save all results to CSV
-    results_df.to_csv('award_share_rank_prediction_results.csv', index=False)
+    results_df.to_csv('award_share_prediction_results.csv', index=False)
     
-    # Create a separate dataframe with just the important columns for easy viewing
-    summary_df = results_df[['season', 'player', 'award_share', 'predicted_award_share', 
-                            'MVP_rank', 'predicted_rank', 'rank_error', 'prediction_quality', 'received_votes']]
-    summary_df.to_csv('award_share_rank_prediction_summary.csv', index=False)
-    
-    # Save separate summary for just vote-getters
+    # Create a separate summary for just vote-getters
     vote_getters_df = results_df[results_df['received_votes']]
     vote_getters_df.to_csv('award_share_vote_getters_prediction.csv', index=False)
     
-    # Generate yearly summary - prediction accuracy by season (for vote getters only)
-    yearly_summary = vote_getters_df.groupby('season').apply(
+    # Generate summary stats by season
+    yearly_summary = results_df.groupby('season').apply(
         lambda x: pd.Series({
-            'num_vote_getters': len(x),
-            'exact_matches': sum(x['abs_rank_error'] == 0),
-            'off_by_one': sum(x['abs_rank_error'] == 1),
-            'off_by_two': sum(x['abs_rank_error'] == 2),
-            'off_by_more': sum(x['abs_rank_error'] > 2),
-            'accuracy': sum(x['abs_rank_error'] == 0) / len(x),
-            'flexible_accuracy': flexible_rank_accuracy(x['MVP_rank'], x['predicted_rank']),
-            'award_share_mse': mean_squared_error(x['award_share'], x['predicted_award_share']),
-            'rank_mse': mean_squared_error(x['MVP_rank'], x['predicted_rank'])
+            'num_players': len(x),
+            'num_vote_getters': sum(x['received_votes']),
+            'mse': mean_squared_error(x['award_share'], x['predicted_award_share']),
+            'mae': mean_absolute_error(x['award_share'], x['predicted_award_share']),
+            'r2': r2_score(x['award_share'], x['predicted_award_share'])
         })
     ).reset_index()
     
-    yearly_summary.to_csv('award_share_rank_yearly_accuracy.csv', index=False)
-    
-    # Generate summary for correct predictions of top-5 vote getters
-    top5_yearly = results_df.groupby('season').apply(
-        lambda x: pd.Series({
-            'top5_correctly_identified': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)),
-            'actual_top5_count': sum(x['MVP_rank'] <= 5),
-            'top5_accuracy': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)) / sum(x['MVP_rank'] <= 5)
-        })
-    ).reset_index()
-    
-    top5_yearly.to_csv('top5_prediction_accuracy.csv', index=False)
+    yearly_summary.to_csv('award_share_yearly_metrics.csv', index=False)
     
     return results_df
 
-# Function to create additional visualizations
+# Function to create visualizations
 def create_visualizations(results_df):
     """
-    Create additional visualizations for model evaluation
+    Create visualizations for model evaluation
     """
     # Filter to only vote getters for some visualizations
     vote_getters_df = results_df[results_df['received_votes']].copy()
     
-    # 1. Confusion matrix for ranks (only for vote getters)
-    plt.figure(figsize=(10, 8))
+    # 1. Error distribution (all players)
+    plt.figure(figsize=(10, 6))
+    sns.histplot(data=results_df, x='award_share_error', bins=30, kde=True)
+    plt.axvline(x=0, color='r', linestyle='--')
+    plt.xlabel('Award Share Prediction Error')
+    plt.ylabel('Count')
+    plt.title('Distribution of Award Share Prediction Errors')
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('award_share_error_distribution.png')
     
-    # Create a modified confusion matrix that includes missed top-5 candidates
-    cm = confusion_matrix(
-        vote_getters_df['MVP_rank'].apply(lambda x: min(x, 6)),  # Cap at 6 for "not in top 5"
-        vote_getters_df['predicted_rank'].apply(lambda x: min(x, 6))  # Cap at 6 for "not in top 5"
+    # 2. Prediction accuracy by season
+    plt.figure(figsize=(12, 6))
+    yearly_metrics = results_df.groupby('season').apply(
+        lambda x: mean_squared_error(x['award_share'], x['predicted_award_share'])
+    ).reset_index()
+    yearly_metrics.columns = ['season', 'mse']
+    
+    sns.barplot(x='season', y='mse', data=yearly_metrics, palette='viridis')
+    plt.xlabel('Season')
+    plt.ylabel('Mean Squared Error')
+    plt.title('Award Share Prediction MSE by Season')
+    plt.xticks(rotation=45)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('award_share_mse_by_season.png')
+    
+    # 3. Actual vs Predicted award_share scatter (all players)
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(
+        results_df['award_share'], 
+        results_df['predicted_award_share'],
+        c=results_df['season'],
+        cmap='viridis',
+        alpha=0.7,
+        s=50
     )
     
-    # Plot heatmap
-    labels = [str(i) for i in range(1, 6)] + ['Not in Top 5']
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
-    plt.xlabel('Predicted Rank')
-    plt.ylabel('True Rank')
-    plt.title('Confusion Matrix of MVP Rank Predictions (from Award Share)')
+    # Add perfect prediction line
+    max_val = max(results_df['award_share'].max(), results_df['predicted_award_share'].max())
+    plt.plot([0, max_val], [0, max_val], 'r--', alpha=0.7)
+    
+    plt.colorbar(scatter, label='Season')
+    plt.xlabel('Actual Award Share')
+    plt.ylabel('Predicted Award Share')
+    plt.title('Actual vs Predicted Award Share')
+    plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_rank_confusion_matrix.png')
+    plt.savefig('award_share_actual_vs_predicted.png')
     
-    # 2. Distribution of prediction errors (only for vote getters)
-    plt.figure(figsize=(10, 6))
-    sns.countplot(x='rank_error', data=vote_getters_df.dropna(subset=['rank_error']), palette='viridis')
-    plt.xlabel('Rank Error (Predicted - Actual)')
-    plt.ylabel('Count')
-    plt.title('Distribution of Rank Prediction Errors (Vote Getters Only)')
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('award_share_rank_error_distribution.png')
-    
-    # 3. Prediction accuracy by season (only for vote getters)
-    yearly_accuracy = vote_getters_df.groupby('season')['abs_rank_error'].apply(
-        lambda x: sum(x == 0) / len(x)
-    ).reset_index()
-    yearly_accuracy.columns = ['season', 'accuracy']
-    
-    plt.figure(figsize=(12, 6))
-    sns.barplot(x='season', y='accuracy', data=yearly_accuracy, palette='viridis')
-    plt.xlabel('Season')
-    plt.ylabel('Accuracy (Exact Matches)')
-    plt.title('Rank Prediction Accuracy by Season (Vote Getters Only)')
-    plt.xticks(rotation=45)
-    plt.ylim(0, 1)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('award_share_rank_accuracy_by_season.png')
-    
-    # 4. Actual vs Predicted award_share scatter (only for vote getters for clarity)
+    # 4. Actual vs Predicted award_share scatter (only vote getters for clarity)
     plt.figure(figsize=(10, 8))
     scatter = plt.scatter(
         vote_getters_df['award_share'], 
@@ -323,54 +229,24 @@ def create_visualizations(results_df):
     plt.title('Actual vs Predicted Award Share (Vote Getters Only)')
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig('award_share_actual_vs_predicted.png')
+    plt.savefig('award_share_vote_getters_actual_vs_predicted.png')
     
-    # 5. Actual vs Predicted rank scatter (only for vote getters)
-    plt.figure(figsize=(10, 8))
-    # Add jitter to prevent points from overlapping exactly
-    jitter = np.random.normal(0, 0.1, size=len(vote_getters_df))
-    scatter = plt.scatter(
-        vote_getters_df['MVP_rank'] + jitter, 
-        vote_getters_df['predicted_rank'] + jitter,
-        c=vote_getters_df['season'],
-        cmap='viridis',
-        alpha=0.7,
-        s=100
-    )
+    # 5. Feature importance 
+    # Can't directly get feature importance from neural network
+    # But we can look at correlations with award_share
+    feature_corr = pd.DataFrame(index=award_share_features)
+    feature_corr['correlation'] = [results_df[feature].corr(results_df['award_share']) for feature in award_share_features]
+    feature_corr = feature_corr.sort_values('correlation', ascending=False)
     
-    # Add perfect prediction line
-    plt.plot([1, 5], [1, 5], 'r--', alpha=0.7)
-    
-    plt.colorbar(scatter, label='Season')
-    plt.xlabel('Actual MVP Rank')
-    plt.ylabel('Predicted Rank (from Award Share)')
-    plt.title('Actual vs Predicted MVP Ranks (Vote Getters Only)')
-    plt.grid(alpha=0.3)
-    plt.xticks(range(1, 7))
-    plt.yticks(range(1, 7))
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x='correlation', y=feature_corr.index, data=feature_corr, palette='viridis')
+    plt.title('Feature Correlation with Award Share')
+    plt.xlabel('Correlation Coefficient')
     plt.tight_layout()
-    plt.savefig('award_share_derived_rank_actual_vs_predicted.png')
-    
-    # 6. Top 5 prediction accuracy by season
-    top5_yearly = results_df.groupby('season').apply(
-        lambda x: pd.Series({
-            'top5_accuracy': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)) / sum(x['MVP_rank'] <= 5)
-        })
-    ).reset_index()
-    
-    plt.figure(figsize=(12, 6))
-    sns.barplot(x='season', y='top5_accuracy', data=top5_yearly, palette='viridis')
-    plt.xlabel('Season')
-    plt.ylabel('Accuracy')
-    plt.title('Accuracy of Correctly Identifying Top-5 MVP Candidates')
-    plt.xticks(rotation=45)
-    plt.ylim(0, 1)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('top5_accuracy_by_season.png')
+    plt.savefig('feature_correlation_with_award_share.png')
 
 # Main execution
-print(f"{'='*20} MVP Award Share Prediction for Ranking {'='*20}")
+print(f"{'='*20} MVP Award Share Prediction {'='*20}")
 
 try:
     # Check for TensorFlow GPU support
@@ -400,9 +276,6 @@ try:
     # Handle missing values in award_share - set to 0 for players who didn't receive votes
     df_mvp['award_share'] = df_mvp['award_share'].fillna(0)
     
-    # Handle missing values in MVP_rank - set to a high value (not in top ranks) for non-MVP vote getters
-    df_mvp['MVP_rank'] = df_mvp['MVP_rank'].fillna(100).astype(int)  # 100 is arbitrary high rank
-    
     print(f"Total number of player seasons: {len(df_mvp)}")
     
     # Convert data types and handle missing values
@@ -415,11 +288,9 @@ try:
     df_mvp.dropna(subset=all_features, inplace=True)
     print(f"After dropping NaNs in features: {len(df_mvp)} rows")
     
-    # Display distribution of MVP ranks for those who received votes
+    # Display distribution of award shares
     vote_getters = df_mvp[df_mvp['award_share'] > 0]
-    rank_distribution = vote_getters['MVP_rank'].value_counts().sort_index()
-    print(f"\nDistribution of MVP ranks for vote getters:\n{rank_distribution}")
-    print(f"Number of players who received MVP votes: {len(vote_getters)}")
+    print(f"\nNumber of players who received MVP votes: {len(vote_getters)}")
     print(f"Number of players who didn't receive MVP votes: {len(df_mvp) - len(vote_getters)}")
     
     # Display award_share statistics
@@ -431,44 +302,14 @@ try:
     print(f"Median: {df_mvp['award_share'].median():.4f}")
     print(f"Percentage of players with votes: {len(vote_getters) / len(df_mvp) * 100:.2f}%")
     
-    # 2. Season-wise Z-score normalization of features
-    print(f"\nNormalizing statistical features using Z-score within each season...")
-    
-    # Function to apply scaling within a group
-    def scale_group(group):
-        scaler = StandardScaler()
-        if len(group) > 1:  # Only scale if more than 1 row
-            group[all_features] = scaler.fit_transform(group[all_features])
-        else:
-            group[all_features] = 0  # Set to 0 for single-row groups
-        return group
-    
-    # Group by season and apply scaling
-    df_mvp_with_season = df_mvp.copy()
-    X_all = df_mvp_with_season[all_features + ['season']].copy()
-    X_normalized_all = X_all.groupby('season').apply(scale_group)
-    
-    # Remove season column after scaling
-    X_normalized_all.drop(columns=['season'], inplace=True)
-    
-    # 3. Feature Selection - Use directly the award_share features from PCA
-    print(f"\n{'-'*10} Feature Selection for Award Share {'-'*10}")
-    
-    # Use the top features from PCA analysis
-    selected_features = award_share_features
-    
-    print(f"Top {len(selected_features)} features for award_share prediction (from PCA analysis):")
-    for i, feature in enumerate(selected_features):
-        print(f"{i+1}. {feature}")
-    
     # Create feature matrix with only selected features
-    X_normalized = X_normalized_all[selected_features]
+    X = df_mvp[award_share_features]
     
     # Target variable - award_share
     y = df_mvp['award_share']
     
     # Reset indices to ensure alignment after splitting
-    X_normalized = X_normalized.reset_index(drop=True)
+    X = X.reset_index(drop=True)
     df_mvp = df_mvp.reset_index(drop=True)
     y = y.reset_index(drop=True)
     
@@ -494,10 +335,13 @@ try:
 
     # Split based on selected seasons
     train_mask = df_mvp['season'].isin(train_seasons)
-    X_train = X_normalized[train_mask]
+    X_train = X[train_mask]
     y_train = y[train_mask]
-    X_test = X_normalized[~train_mask]
+    X_test = X[~train_mask]
     y_test = y[~train_mask]
+    
+    # Save test indices for later use
+    test_indices = df_mvp[~train_mask].index
 
     print(f"Training set shape: {X_train.shape}")
     print(f"Test set shape: {X_test.shape}")
@@ -588,89 +432,50 @@ try:
     y_pred_award_share = np.clip(y_pred_award_share, 0, 1)
     
     # Performance metrics for award_share prediction
-    mse_award_share = mean_squared_error(y_test, y_pred_award_share)
-    r2_award_share = r2_score(y_test, y_pred_award_share)
+    mse = mean_squared_error(y_test, y_pred_award_share)
+    mae = mean_absolute_error(y_test, y_pred_award_share)
+    r2 = r2_score(y_test, y_pred_award_share)
     
     print(f"\nAward Share Prediction Performance:")
-    print(f"Mean Squared Error: {mse_award_share:.4f}")
-    print(f"R-squared: {r2_award_share:.4f}")
+    print(f"Mean Squared Error: {mse:.4f}")
+    print(f"Mean Absolute Error: {mae:.4f}")
+    print(f"R-squared: {r2:.4f}")
     
-    # 6. Convert predictions to rankings within each season
-    print(f"\n{'-'*10} Converting Award Share Predictions to Rankings {'-'*10}")
+    # Performance metrics for vote getters only
+    vote_getters_mask = y_test > 0
+    if np.sum(vote_getters_mask) > 0:
+        vote_getters_mse = mean_squared_error(y_test[vote_getters_mask], y_pred_award_share[vote_getters_mask])
+        vote_getters_mae = mean_absolute_error(y_test[vote_getters_mask], y_pred_award_share[vote_getters_mask])
+        vote_getters_r2 = r2_score(y_test[vote_getters_mask], y_pred_award_share[vote_getters_mask])
+        
+        print(f"\nAward Share Prediction Performance (Vote Getters Only):")
+        print(f"Mean Squared Error: {vote_getters_mse:.4f}")
+        print(f"Mean Absolute Error: {vote_getters_mae:.4f}")
+        print(f"R-squared: {vote_getters_r2:.4f}")
     
-    # Add predictions to test_data
-    test_data = df_mvp.iloc[X_test.index].copy()
-    test_data['predicted_award_share'] = y_pred_award_share
-    
-    # Convert to ranks within each season
-    ranked_test_data = convert_to_ranks(test_data)
-    
-    # Performance metrics for rank prediction - for vote getters only!
-    vote_getters_mask = ranked_test_data['award_share'] > 0
-    vote_getters = ranked_test_data[vote_getters_mask]
-
-    y_test_rank = vote_getters['MVP_rank']
-    y_pred_rank = vote_getters['predicted_rank']
-
-    mse_rank = mean_squared_error(y_test_rank, y_pred_rank)
-    acc_rank_exact = np.sum(y_pred_rank == y_test_rank) / len(y_test_rank)
-    acc_rank_flex = flexible_rank_accuracy(y_test_rank, y_pred_rank)
-
-    print(f"\nRank Prediction Performance (For Vote Getters Only):")
-    print(f"Number of vote getters in test set: {len(vote_getters)} out of {len(ranked_test_data)} total players")
-    print(f"Mean Squared Error: {mse_rank:.4f}")
-    print(f"Exact Rank Accuracy: {acc_rank_exact:.4f} ({int(acc_rank_exact * len(y_test_rank))} exact matches out of {len(y_test_rank)})")
-    print(f"Flexible Rank Accuracy: {acc_rank_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks)")
-
-    # Calculate counts for each type of match
-    rank_breakdown = get_prediction_breakdown(y_test_rank, y_pred_rank)
-
-    print(f"Prediction breakdown:")
-    print(f"  Exact matches: {rank_breakdown['exact']}")
-    print(f"  Off by 1 rank: {rank_breakdown['off_by_one']}")
-    print(f"  Off by 2 ranks: {rank_breakdown['off_by_two']}")
-    print(f"  Off by >2 ranks: {rank_breakdown['off_by_more']}")
-
-    # Calculate top-5 identification metrics
-    actual_top5 = ranked_test_data[ranked_test_data['MVP_rank'] <= 5]
-    pred_top5 = ranked_test_data[ranked_test_data['predicted_rank'] <= 5]
-    correctly_identified = len(set(actual_top5.index) & set(pred_top5.index))
-
-    print(f"\nTop-5 MVP Candidate Identification:")
-    print(f"Actual top-5 candidates: {len(actual_top5)}")
-    print(f"Predicted top-5 candidates: {len(pred_top5)}")
-    print(f"Correctly identified: {correctly_identified}")
-    print(f"Top-5 identification accuracy: {correctly_identified/len(actual_top5):.4f}")
-
-    # Print number of mistakenly predicted top-5 (false positives)
-    false_positives = len(pred_top5) - correctly_identified
-    print(f"Players wrongly predicted as top-5: {false_positives}")
-
     # Save detailed predictions and create visualizations
     print("\nSaving detailed prediction results...")
-    results_df = save_detailed_predictions(df_mvp, ranked_test_data)
+    results_df = save_prediction_results(df_mvp, test_indices, y_test, y_pred_award_share)
     
-    # Create additional visualizations
-    print("Creating additional visualizations...")
+    # Create visualizations
+    print("Creating visualizations...")
     create_visualizations(results_df)
     
     # Print information about where to find the results
     print("\nDetailed Results Files:")
-    print("- Complete prediction results: 'award_share_rank_prediction_results.csv'")
-    print("- Prediction summary: 'award_share_rank_prediction_summary.csv'")
-    print("- Yearly accuracy summary: 'award_share_rank_yearly_accuracy.csv'")
+    print("- Complete prediction results: 'award_share_prediction_results.csv'")
+    print("- Vote getters predictions: 'award_share_vote_getters_prediction.csv'")
+    print("- Yearly metrics summary: 'award_share_yearly_metrics.csv'")
     print("\nVisualization Files:")
-    print("- Confusion matrix: 'award_share_rank_confusion_matrix.png'")
-    print("- Error distribution: 'award_share_rank_error_distribution.png'")
-    print("- Seasonal accuracy: 'award_share_rank_accuracy_by_season.png'")
-    print("- Award Share predictions: 'award_share_actual_vs_predicted.png'")
-    print("- Rank predictions: 'award_share_derived_rank_actual_vs_predicted.png'")
+    print("- Error distribution: 'award_share_error_distribution.png'")
+    print("- MSE by season: 'award_share_mse_by_season.png'")
+    print("- Actual vs Predicted (All players): 'award_share_actual_vs_predicted.png'")
+    print("- Actual vs Predicted (Vote getters): 'award_share_vote_getters_actual_vs_predicted.png'")
+    print("- Feature correlation: 'feature_correlation_with_award_share.png'")
     
-    # Display all predictions
-    print(f"\n{'-'*10} All Test Set Predictions {'-'*10}")
-    all_preds = ranked_test_data[['season', 'player', 'award_share', 'predicted_award_share', 
-                                 'MVP_rank', 'predicted_rank']]
-    print(all_preds.sort_values(['season', 'predicted_rank']).to_string(index=False))
+    # Save the model if needed
+    mlp_model.save("award_share_prediction_model")
+    print("Model saved to 'award_share_prediction_model'")
     
 except FileNotFoundError:
     print(f"Error: The file {DATA_FILE} was not found.")
@@ -683,4 +488,4 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-print(f"\n{'='*20} MVP Award Share Prediction for Ranking Finished {'='*20}") 
+print(f"\n{'='*20} MVP Award Share Prediction Finished {'='*20}") 
