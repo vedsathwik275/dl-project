@@ -15,10 +15,10 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
 # Configuration
-DATA_FILE = "../data/filtered_nba_data_with_MVP_rank.csv"
+DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
-EPOCHS = 300
+EPOCHS = 500
 BATCH_SIZE = 32
 LEARNING_RATE = 0.0001
 PATIENCE = 20  # For early stopping
@@ -124,8 +124,8 @@ def build_mlp_model(input_shape):
     x = LeakyReLU(alpha=0.1)(x)
     x = Dropout(0.2)(x)
     
-    # Output layer - use linear activation for award_share prediction
-    output = Dense(1)(x)
+    # Output layer - use sigmoid activation to ensure output is in 0-1 range
+    output = Dense(1, activation='sigmoid')(x)
     
     # Create and compile model
     model = Model(inputs=inputs, outputs=output)
@@ -149,14 +149,11 @@ def convert_to_ranks(df, pred_col='predicted_award_share'):
     # Group by season and rank the predictions (higher award_share = better rank)
     ranked_df['predicted_rank'] = ranked_df.groupby('season')[pred_col].rank(ascending=False, method='first')
     
-    # Ensure only ranks 1-5 are used
-    def limit_ranks(group):
-        mask = group['predicted_rank'] > 5
-        group.loc[mask, 'predicted_rank'] = 5
-        return group
+    # Set all ranks above 5 to just be rank 6 for easier analysis
+    ranked_df.loc[ranked_df['predicted_rank'] > 5, 'predicted_rank'] = 6
     
-    # Apply limit_ranks and reset index to avoid 'season' being both index and column
-    ranked_df = ranked_df.groupby('season').apply(limit_ranks).reset_index(drop=True)
+    # Apply and reset index to avoid 'season' being both index and column
+    ranked_df = ranked_df.reset_index(drop=True)
     
     # Convert to integer
     ranked_df['predicted_rank'] = ranked_df['predicted_rank'].astype(int)
@@ -182,36 +179,50 @@ def save_detailed_predictions(df, full_results_df):
     """
     Save comprehensive prediction results to CSV with additional stats
     """
-    # Calculate error
+    # Calculate error (only for players who received votes - have actual ranks 1-5)
     results_df = full_results_df.copy()
-    results_df['rank_error'] = results_df['predicted_rank'] - results_df['MVP_rank']
-    results_df['abs_rank_error'] = np.abs(results_df['rank_error'])
     
-    # Add prediction quality labels
+    # Create a flag for vote-getters
+    results_df['received_votes'] = results_df['award_share'] > 0
+    
+    # Calculate rank error only for those who received votes (actual ranks 1-5)
+    vote_getters_mask = results_df['received_votes']
+    results_df.loc[vote_getters_mask, 'rank_error'] = results_df.loc[vote_getters_mask, 'predicted_rank'] - results_df.loc[vote_getters_mask, 'MVP_rank']
+    results_df.loc[vote_getters_mask, 'abs_rank_error'] = np.abs(results_df.loc[vote_getters_mask, 'rank_error'])
+    
+    # Non-vote getters have no meaningful rank error since they didn't have a real rank
+    results_df.loc[~vote_getters_mask, 'rank_error'] = np.nan
+    results_df.loc[~vote_getters_mask, 'abs_rank_error'] = np.nan
+    
+    # Add prediction quality labels - only for vote getters
     conditions = [
-        (results_df['abs_rank_error'] == 0),
-        (results_df['abs_rank_error'] == 1),
-        (results_df['abs_rank_error'] == 2),
-        (results_df['abs_rank_error'] > 2)
+        (vote_getters_mask) & (results_df['abs_rank_error'] == 0),
+        (vote_getters_mask) & (results_df['abs_rank_error'] == 1),
+        (vote_getters_mask) & (results_df['abs_rank_error'] == 2),
+        (vote_getters_mask) & (results_df['abs_rank_error'] > 2)
     ]
     labels = ['Exact Match', 'Off by 1', 'Off by 2', 'Off by >2']
-    results_df['prediction_quality'] = np.select(conditions, labels)
+    results_df['prediction_quality'] = np.select(conditions, labels, default='N/A (No Votes)')
     
-    # Sort by season (descending) and MVP rank (ascending)
-    results_df = results_df.sort_values(['season', 'MVP_rank'], ascending=[False, True])
+    # Sort by season (descending) and predicted rank (ascending)
+    results_df = results_df.sort_values(['season', 'predicted_rank'], ascending=[False, True])
     
     # Save all results to CSV
     results_df.to_csv('award_share_rank_prediction_results.csv', index=False)
     
     # Create a separate dataframe with just the important columns for easy viewing
     summary_df = results_df[['season', 'player', 'award_share', 'predicted_award_share', 
-                            'MVP_rank', 'predicted_rank', 'rank_error', 'prediction_quality']]
+                            'MVP_rank', 'predicted_rank', 'rank_error', 'prediction_quality', 'received_votes']]
     summary_df.to_csv('award_share_rank_prediction_summary.csv', index=False)
     
-    # Generate yearly summary - prediction accuracy by season
-    yearly_summary = results_df.groupby('season').apply(
+    # Save separate summary for just vote-getters
+    vote_getters_df = results_df[results_df['received_votes']]
+    vote_getters_df.to_csv('award_share_vote_getters_prediction.csv', index=False)
+    
+    # Generate yearly summary - prediction accuracy by season (for vote getters only)
+    yearly_summary = vote_getters_df.groupby('season').apply(
         lambda x: pd.Series({
-            'num_players': len(x),
+            'num_vote_getters': len(x),
             'exact_matches': sum(x['abs_rank_error'] == 0),
             'off_by_one': sum(x['abs_rank_error'] == 1),
             'off_by_two': sum(x['abs_rank_error'] == 2),
@@ -225,6 +236,17 @@ def save_detailed_predictions(df, full_results_df):
     
     yearly_summary.to_csv('award_share_rank_yearly_accuracy.csv', index=False)
     
+    # Generate summary for correct predictions of top-5 vote getters
+    top5_yearly = results_df.groupby('season').apply(
+        lambda x: pd.Series({
+            'top5_correctly_identified': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)),
+            'actual_top5_count': sum(x['MVP_rank'] <= 5),
+            'top5_accuracy': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)) / sum(x['MVP_rank'] <= 5)
+        })
+    ).reset_index()
+    
+    top5_yearly.to_csv('top5_prediction_accuracy.csv', index=False)
+    
     return results_df
 
 # Function to create additional visualizations
@@ -232,30 +254,39 @@ def create_visualizations(results_df):
     """
     Create additional visualizations for model evaluation
     """
-    # 1. Confusion matrix for ranks
+    # Filter to only vote getters for some visualizations
+    vote_getters_df = results_df[results_df['received_votes']].copy()
+    
+    # 1. Confusion matrix for ranks (only for vote getters)
     plt.figure(figsize=(10, 8))
-    cm = confusion_matrix(results_df['MVP_rank'], results_df['predicted_rank'])
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=range(1, 6), 
-                yticklabels=range(1, 6))
+    
+    # Create a modified confusion matrix that includes missed top-5 candidates
+    cm = confusion_matrix(
+        vote_getters_df['MVP_rank'].apply(lambda x: min(x, 6)),  # Cap at 6 for "not in top 5"
+        vote_getters_df['predicted_rank'].apply(lambda x: min(x, 6))  # Cap at 6 for "not in top 5"
+    )
+    
+    # Plot heatmap
+    labels = [str(i) for i in range(1, 6)] + ['Not in Top 5']
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
     plt.xlabel('Predicted Rank')
     plt.ylabel('True Rank')
     plt.title('Confusion Matrix of MVP Rank Predictions (from Award Share)')
     plt.tight_layout()
     plt.savefig('award_share_rank_confusion_matrix.png')
     
-    # 2. Distribution of prediction errors
+    # 2. Distribution of prediction errors (only for vote getters)
     plt.figure(figsize=(10, 6))
-    sns.countplot(x='rank_error', data=results_df, palette='viridis')
+    sns.countplot(x='rank_error', data=vote_getters_df.dropna(subset=['rank_error']), palette='viridis')
     plt.xlabel('Rank Error (Predicted - Actual)')
     plt.ylabel('Count')
-    plt.title('Distribution of Rank Prediction Errors')
+    plt.title('Distribution of Rank Prediction Errors (Vote Getters Only)')
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     plt.savefig('award_share_rank_error_distribution.png')
     
-    # 3. Prediction accuracy by season
-    yearly_accuracy = results_df.groupby('season')['abs_rank_error'].apply(
+    # 3. Prediction accuracy by season (only for vote getters)
+    yearly_accuracy = vote_getters_df.groupby('season')['abs_rank_error'].apply(
         lambda x: sum(x == 0) / len(x)
     ).reset_index()
     yearly_accuracy.columns = ['season', 'accuracy']
@@ -264,44 +295,44 @@ def create_visualizations(results_df):
     sns.barplot(x='season', y='accuracy', data=yearly_accuracy, palette='viridis')
     plt.xlabel('Season')
     plt.ylabel('Accuracy (Exact Matches)')
-    plt.title('Rank Prediction Accuracy by Season')
+    plt.title('Rank Prediction Accuracy by Season (Vote Getters Only)')
     plt.xticks(rotation=45)
     plt.ylim(0, 1)
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     plt.savefig('award_share_rank_accuracy_by_season.png')
     
-    # 4. Actual vs Predicted award_share scatter
+    # 4. Actual vs Predicted award_share scatter (only for vote getters for clarity)
     plt.figure(figsize=(10, 8))
     scatter = plt.scatter(
-        results_df['award_share'], 
-        results_df['predicted_award_share'],
-        c=results_df['season'],
+        vote_getters_df['award_share'], 
+        vote_getters_df['predicted_award_share'],
+        c=vote_getters_df['season'],
         cmap='viridis',
         alpha=0.7,
         s=100
     )
     
     # Add perfect prediction line
-    max_val = max(results_df['award_share'].max(), results_df['predicted_award_share'].max())
+    max_val = max(vote_getters_df['award_share'].max(), vote_getters_df['predicted_award_share'].max())
     plt.plot([0, max_val], [0, max_val], 'r--', alpha=0.7)
     
     plt.colorbar(scatter, label='Season')
     plt.xlabel('Actual Award Share')
     plt.ylabel('Predicted Award Share')
-    plt.title('Actual vs Predicted Award Share')
+    plt.title('Actual vs Predicted Award Share (Vote Getters Only)')
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig('award_share_actual_vs_predicted.png')
     
-    # 5. Actual vs Predicted rank scatter
+    # 5. Actual vs Predicted rank scatter (only for vote getters)
     plt.figure(figsize=(10, 8))
     # Add jitter to prevent points from overlapping exactly
-    jitter = np.random.normal(0, 0.1, size=len(results_df))
+    jitter = np.random.normal(0, 0.1, size=len(vote_getters_df))
     scatter = plt.scatter(
-        results_df['MVP_rank'] + jitter, 
-        results_df['predicted_rank'] + jitter,
-        c=results_df['season'],
+        vote_getters_df['MVP_rank'] + jitter, 
+        vote_getters_df['predicted_rank'] + jitter,
+        c=vote_getters_df['season'],
         cmap='viridis',
         alpha=0.7,
         s=100
@@ -313,12 +344,30 @@ def create_visualizations(results_df):
     plt.colorbar(scatter, label='Season')
     plt.xlabel('Actual MVP Rank')
     plt.ylabel('Predicted Rank (from Award Share)')
-    plt.title('Actual vs Predicted MVP Ranks')
+    plt.title('Actual vs Predicted MVP Ranks (Vote Getters Only)')
     plt.grid(alpha=0.3)
-    plt.xticks(range(1, 6))
-    plt.yticks(range(1, 6))
+    plt.xticks(range(1, 7))
+    plt.yticks(range(1, 7))
     plt.tight_layout()
     plt.savefig('award_share_derived_rank_actual_vs_predicted.png')
+    
+    # 6. Top 5 prediction accuracy by season
+    top5_yearly = results_df.groupby('season').apply(
+        lambda x: pd.Series({
+            'top5_accuracy': sum((x['MVP_rank'] <= 5) & (x['predicted_rank'] <= 5)) / sum(x['MVP_rank'] <= 5)
+        })
+    ).reset_index()
+    
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x='season', y='top5_accuracy', data=top5_yearly, palette='viridis')
+    plt.xlabel('Season')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy of Correctly Identifying Top-5 MVP Candidates')
+    plt.xticks(rotation=45)
+    plt.ylim(0, 1)
+    plt.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('top5_accuracy_by_season.png')
 
 # Main execution
 print(f"{'='*20} MVP Award Share Prediction for Ranking {'='*20}")
@@ -340,14 +389,21 @@ try:
     print(f"Loaded data. Shape: {df.shape}")
     
     # Verify essential columns exist
-    essential_cols = all_features + ['season', 'MVP_rank', 'player', 'award_share']
+    essential_cols = all_features + ['season', 'player']
     missing_cols = [col for col in essential_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Error: Missing essential columns: {missing_cols}")
     
-    # Focus only on rows with MVP_rank and award_share
-    df_mvp = df.dropna(subset=['MVP_rank', 'award_share'])
-    print(f"Number of rows with MVP rank and award_share: {len(df_mvp)} out of {len(df)} total rows")
+    # Keep all players, don't filter by MVP_rank or award_share
+    df_mvp = df.copy()
+    
+    # Handle missing values in award_share - set to 0 for players who didn't receive votes
+    df_mvp['award_share'] = df_mvp['award_share'].fillna(0)
+    
+    # Handle missing values in MVP_rank - set to a high value (not in top ranks) for non-MVP vote getters
+    df_mvp['MVP_rank'] = df_mvp['MVP_rank'].fillna(100).astype(int)  # 100 is arbitrary high rank
+    
+    print(f"Total number of player seasons: {len(df_mvp)}")
     
     # Convert data types and handle missing values
     # Convert feature columns to numeric
@@ -355,26 +411,25 @@ try:
         if col in df_mvp.columns:
             df_mvp[col] = pd.to_numeric(df_mvp[col], errors='coerce')
     
-    # Convert award_share to numeric
-    df_mvp['award_share'] = pd.to_numeric(df_mvp['award_share'], errors='coerce')
+    # Drop rows with NaN in features (but keep rows even if award_share is 0)
+    df_mvp.dropna(subset=all_features, inplace=True)
+    print(f"After dropping NaNs in features: {len(df_mvp)} rows")
     
-    # Drop rows with NaN in features or award_share
-    df_mvp.dropna(subset=all_features + ['award_share'], inplace=True)
-    print(f"After dropping NaNs in features and award_share: {len(df_mvp)} rows")
-    
-    # Ensure MVP_rank is integer
-    df_mvp['MVP_rank'] = df_mvp['MVP_rank'].astype(int)
-    
-    # Display distribution of MVP ranks
-    rank_distribution = df_mvp['MVP_rank'].value_counts().sort_index()
-    print(f"\nDistribution of MVP ranks:\n{rank_distribution}")
+    # Display distribution of MVP ranks for those who received votes
+    vote_getters = df_mvp[df_mvp['award_share'] > 0]
+    rank_distribution = vote_getters['MVP_rank'].value_counts().sort_index()
+    print(f"\nDistribution of MVP ranks for vote getters:\n{rank_distribution}")
+    print(f"Number of players who received MVP votes: {len(vote_getters)}")
+    print(f"Number of players who didn't receive MVP votes: {len(df_mvp) - len(vote_getters)}")
     
     # Display award_share statistics
     print(f"\nAward Share statistics:")
     print(f"Mean: {df_mvp['award_share'].mean():.4f}")
+    print(f"Non-zero Mean: {df_mvp[df_mvp['award_share'] > 0]['award_share'].mean():.4f}")
     print(f"Min: {df_mvp['award_share'].min():.4f}")
     print(f"Max: {df_mvp['award_share'].max():.4f}")
     print(f"Median: {df_mvp['award_share'].median():.4f}")
+    print(f"Percentage of players with votes: {len(vote_getters) / len(df_mvp) * 100:.2f}%")
     
     # 2. Season-wise Z-score normalization of features
     print(f"\nNormalizing statistical features using Z-score within each season...")
@@ -417,32 +472,59 @@ try:
     df_mvp = df_mvp.reset_index(drop=True)
     y = y.reset_index(drop=True)
     
-    # 4. Split data for training and testing - by season to ensure proper evaluation
+    # 4. Split data for training and testing - random selection of seasons 
+    print(f"\n{'-'*10} Train-Test Split {'-'*10}")
+
     # Get unique seasons
     seasons = df_mvp['season'].unique()
-    # Use the most recent 20% of seasons for testing
-    seasons.sort()
-    split_idx = int(len(seasons) * 0.8)
-    train_seasons = seasons[:split_idx]
-    test_seasons = seasons[split_idx:]
-    
-    # Split based on seasons
+    print(f"Total number of unique seasons: {len(seasons)}")
+
+    # Set number of training seasons
+    TRAIN_SEASONS_COUNT = 33
+    TEST_SEASONS_COUNT = len(seasons) - TRAIN_SEASONS_COUNT
+
+    # Randomly select training seasons
+    np.random.seed(RANDOM_STATE)  # For reproducibility
+    train_seasons = np.random.choice(seasons, size=TRAIN_SEASONS_COUNT, replace=False)
+    test_seasons = np.array([s for s in seasons if s not in train_seasons])
+
+    print(f"Training on {TRAIN_SEASONS_COUNT} randomly selected seasons, testing on {TEST_SEASONS_COUNT} seasons")
+    print(f"Training seasons: {sorted(train_seasons)}")
+    print(f"Test seasons: {sorted(test_seasons)}")
+
+    # Split based on selected seasons
     train_mask = df_mvp['season'].isin(train_seasons)
     X_train = X_normalized[train_mask]
     y_train = y[train_mask]
     X_test = X_normalized[~train_mask]
     y_test = y[~train_mask]
-    
-    print(f"Training set seasons: {train_seasons}")
-    print(f"Test set seasons: {test_seasons}")
+
     print(f"Training set shape: {X_train.shape}")
     print(f"Test set shape: {X_test.shape}")
-    
-    # Save test indices
-    test_indices = df_mvp[~train_mask].index
-    
-    # Save info about test set for later analysis
-    test_data = df_mvp.iloc[test_indices].copy()
+
+    # Training data distribution by era
+    train_seasons_df = pd.DataFrame({'season': train_seasons})
+    train_seasons_df['era'] = train_seasons_df['season'].apply(lambda s: 
+        "Physical Play (1980s)" if 1980 <= s <= 1989 else
+        "Isolation (1995-2010)" if 1995 <= s <= 2010 else
+        "Analytics/3PT (2011+)" if s >= 2011 else "Other"
+    )
+    train_era_counts = train_seasons_df['era'].value_counts()
+    print("\nTraining seasons distribution by era:")
+    for era, count in train_era_counts.items():
+        print(f"  {era}: {count} seasons")
+
+    # Test data distribution by era  
+    test_seasons_df = pd.DataFrame({'season': test_seasons})
+    test_seasons_df['era'] = test_seasons_df['season'].apply(lambda s: 
+        "Physical Play (1980s)" if 1980 <= s <= 1989 else
+        "Isolation (1995-2010)" if 1995 <= s <= 2010 else
+        "Analytics/3PT (2011+)" if s >= 2011 else "Other"
+    )
+    test_era_counts = test_seasons_df['era'].value_counts()
+    print("\nTest seasons distribution by era:")
+    for era, count in test_era_counts.items():
+        print(f"  {era}: {count} seasons")
     
     # 5. Neural Network (MLP) with selected features
     print(f"\n{'-'*10} MLP Neural Network for Award Share Prediction {'-'*10}")
@@ -502,6 +584,9 @@ try:
     # Make predictions
     y_pred_award_share = mlp_model.predict(X_test).flatten()
     
+    # Ensure predictions are in valid range (0-1)
+    y_pred_award_share = np.clip(y_pred_award_share, 0, 1)
+    
     # Performance metrics for award_share prediction
     mse_award_share = mean_squared_error(y_test, y_pred_award_share)
     r2_award_share = r2_score(y_test, y_pred_award_share)
@@ -514,33 +599,53 @@ try:
     print(f"\n{'-'*10} Converting Award Share Predictions to Rankings {'-'*10}")
     
     # Add predictions to test_data
+    test_data = df_mvp.iloc[X_test.index].copy()
     test_data['predicted_award_share'] = y_pred_award_share
     
     # Convert to ranks within each season
     ranked_test_data = convert_to_ranks(test_data)
     
-    # Performance metrics for rank prediction
-    y_test_rank = ranked_test_data['MVP_rank']
-    y_pred_rank = ranked_test_data['predicted_rank']
-    
+    # Performance metrics for rank prediction - for vote getters only!
+    vote_getters_mask = ranked_test_data['award_share'] > 0
+    vote_getters = ranked_test_data[vote_getters_mask]
+
+    y_test_rank = vote_getters['MVP_rank']
+    y_pred_rank = vote_getters['predicted_rank']
+
     mse_rank = mean_squared_error(y_test_rank, y_pred_rank)
     acc_rank_exact = np.sum(y_pred_rank == y_test_rank) / len(y_test_rank)
     acc_rank_flex = flexible_rank_accuracy(y_test_rank, y_pred_rank)
-    
-    print(f"\nRank Prediction Performance:")
+
+    print(f"\nRank Prediction Performance (For Vote Getters Only):")
+    print(f"Number of vote getters in test set: {len(vote_getters)} out of {len(ranked_test_data)} total players")
     print(f"Mean Squared Error: {mse_rank:.4f}")
     print(f"Exact Rank Accuracy: {acc_rank_exact:.4f} ({int(acc_rank_exact * len(y_test_rank))} exact matches out of {len(y_test_rank)})")
     print(f"Flexible Rank Accuracy: {acc_rank_flex:.4f} (includes 80% credit for being off by one or 20% for being off by two ranks)")
-    
+
     # Calculate counts for each type of match
     rank_breakdown = get_prediction_breakdown(y_test_rank, y_pred_rank)
-    
+
     print(f"Prediction breakdown:")
     print(f"  Exact matches: {rank_breakdown['exact']}")
     print(f"  Off by 1 rank: {rank_breakdown['off_by_one']}")
     print(f"  Off by 2 ranks: {rank_breakdown['off_by_two']}")
     print(f"  Off by >2 ranks: {rank_breakdown['off_by_more']}")
-    
+
+    # Calculate top-5 identification metrics
+    actual_top5 = ranked_test_data[ranked_test_data['MVP_rank'] <= 5]
+    pred_top5 = ranked_test_data[ranked_test_data['predicted_rank'] <= 5]
+    correctly_identified = len(set(actual_top5.index) & set(pred_top5.index))
+
+    print(f"\nTop-5 MVP Candidate Identification:")
+    print(f"Actual top-5 candidates: {len(actual_top5)}")
+    print(f"Predicted top-5 candidates: {len(pred_top5)}")
+    print(f"Correctly identified: {correctly_identified}")
+    print(f"Top-5 identification accuracy: {correctly_identified/len(actual_top5):.4f}")
+
+    # Print number of mistakenly predicted top-5 (false positives)
+    false_positives = len(pred_top5) - correctly_identified
+    print(f"Players wrongly predicted as top-5: {false_positives}")
+
     # Save detailed predictions and create visualizations
     print("\nSaving detailed prediction results...")
     results_df = save_detailed_predictions(df_mvp, ranked_test_data)
