@@ -51,6 +51,36 @@ award_share_features = [
     'ft_per_g', 'fg_per_g', 'fta_per_g', 'fg2_per_g', 'fga_per_g'
 ]
 
+# =============== HELPER LAYER DEFINITIONS ===============
+
+class ExpandDimsLayer(Layer):
+    """Wrapper for tf.expand_dims as a Keras layer"""
+    def __init__(self, axis):
+        super(ExpandDimsLayer, self).__init__()
+        self.axis = axis
+        
+    def call(self, inputs):
+        return tf.expand_dims(inputs, axis=self.axis)
+    
+    def get_config(self):
+        config = super(ExpandDimsLayer, self).get_config()
+        config.update({"axis": self.axis})
+        return config
+
+class SqueezeLayer(Layer):
+    """Wrapper for tf.squeeze as a Keras layer"""
+    def __init__(self, axis):
+        super(SqueezeLayer, self).__init__()
+        self.axis = axis
+        
+    def call(self, inputs):
+        return tf.squeeze(inputs, axis=self.axis)
+    
+    def get_config(self):
+        config = super(SqueezeLayer, self).get_config()
+        config.update({"axis": self.axis})
+        return config
+
 # =============== TRANSFORMER LAYER DEFINITIONS ===============
 
 class TransformerBlock(Layer):
@@ -69,7 +99,7 @@ class TransformerBlock(Layer):
         self.dropout1 = Dropout(rate)
         self.dropout2 = Dropout(rate)
 
-    def call(self, inputs, training):
+    def call(self, inputs, training=None):
         attn_output = self.att(inputs, inputs)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(inputs + attn_output)
@@ -86,10 +116,11 @@ class FeatureEmbedding(Layer):
         self.embed_dim = embed_dim
         self.embedding = Dense(embed_dim, activation='relu')
         self.layernorm = LayerNormalization(epsilon=1e-6)
+        self.expand_dims = ExpandDimsLayer(axis=1)
 
     def call(self, inputs):
         # Reshape input features to [batch_size, sequence_length=1, feature_dim]
-        x = tf.expand_dims(inputs, axis=1)
+        x = self.expand_dims(inputs)
         # Project to embedding dimension
         x = self.embedding(x)
         return self.layernorm(x)
@@ -119,14 +150,14 @@ def build_transformer_model(input_shape, embed_dim=512, num_heads=8, num_transfo
     x = Dropout(dropout_rate)(x)
     
     # Reshape for transformer: [batch_size, 1, embed_dim]
-    x = tf.expand_dims(x, axis=1)
+    x = ExpandDimsLayer(axis=1)(x)
     
     # Apply transformer blocks
     for _ in range(num_transformer_blocks):
         x = TransformerBlock(embed_dim, num_heads, embed_dim * 4, dropout_rate)(x)
     
     # Flatten the output
-    x = tf.squeeze(x, axis=1)
+    x = SqueezeLayer(axis=1)(x)
     
     # Final layers
     x = Dense(256, activation='relu', kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
