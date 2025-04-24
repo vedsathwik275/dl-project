@@ -142,15 +142,8 @@ def build_mlp_model(input_shape):
     # Create and compile model
     model = Model(inputs=inputs, outputs=output)
     
-    # Use a learning rate scheduler
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=LEARNING_RATE,
-        decay_steps=1000,
-        decay_rate=0.95,
-        staircase=True
-    )
-    
-    optimizer = Adam(learning_rate=lr_schedule)
+    # Remove the learning rate scheduler and use fixed learning rate
+    optimizer = Adam(learning_rate=LEARNING_RATE)
     model.compile(
         optimizer=optimizer,
         loss='mse',  # Mean squared error for continuous variable
@@ -636,13 +629,6 @@ def main():
             callbacks=[
                 early_stopping,
                 reduce_lr,
-                # Add a checkpoint callback to save the best model
-                tf.keras.callbacks.ModelCheckpoint(
-                    filepath=f"{OUTPUT_DIR}/best_model.h5",
-                    monitor='val_loss',
-                    save_best_only=True,
-                    verbose=1
-                )
             ],
             verbose=2
         )
