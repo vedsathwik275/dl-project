@@ -103,8 +103,8 @@ def build_mlp_model(input_shape):
     
     # Self-attention mechanism for feature importance
     # Create a more straightforward attention mechanism for tabular data
-    attention_features = Dense(64, activation='tanh', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    attention_weights = Dense(64, activation='softmax', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(attention_features)
+    attention_features = Dense(128, activation='tanh', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    attention_weights = Dense(128, activation='softmax', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(attention_features)
     attention_output = Multiply()([x, attention_weights])
     attention_output = Dropout(0.2)(attention_output)
     
