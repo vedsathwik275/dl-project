@@ -26,10 +26,10 @@ os.makedirs(PICS_DIR, exist_ok=True)
 # Training parameters
 TEST_SIZE = 0.2
 RANDOM_STATE = 423
-EPOCHS = 1000
-BATCH_SIZE = 64
-LEARNING_RATE = 0.0005
-PATIENCE = 30  # For early stopping
+EPOCHS = 1200  # Increased from 1000
+BATCH_SIZE = 32  # Reduced from 64 for better generalization
+LEARNING_RATE = 0.001  # Slightly increased initial learning rate
+PATIENCE = 50  # Increased from 30 
 
 # Define all possible features
 all_features = [
@@ -55,110 +55,102 @@ award_share_features = [
 
 def build_mlp_model(input_shape):
     """
-    Build advanced MLP neural network model with:
-    - Multiple residual blocks
-    - Attention mechanism
-    - Bottleneck architecture
-    - Varying dropout rates
-    - Layer normalization
+    Build enhanced MLP neural network model with:
+    - Deeper architecture with skip connections
+    - More sophisticated attention mechanism
+    - Improved regularization strategy
+    - Specialized learning for ranking tasks
     """
     # Input layer
     inputs = Input(shape=(input_shape,))
     
-    # First block
-    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(inputs)
+    # First layer with strong regularization
+    x = Dense(256, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(inputs)
     x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.4)(x)  # Higher dropout at early layers
-    
-    # Residual block 1 with bottleneck
-    block_input = x
-    # Bottleneck down
-    x = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.3)(x)
-    # Bottleneck up
-    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    # Residual connection
-    x = Add()([x, block_input])
+    x = LeakyReLU(alpha=0.2)(x)
     x = Dropout(0.3)(x)
     
-    # Residual block 2
-    block_input = x
-    # Bottleneck down
-    x = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    # Branch the network for multi-path learning
+    # Path 1: Deep network for complex patterns
+    deep_path = Dense(128, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
+    deep_path = LayerNormalization()(deep_path)
+    deep_path = LeakyReLU(alpha=0.2)(deep_path)
+    deep_path = Dropout(0.3)(deep_path)
+    
+    # Residual blocks in deep path
+    for i in range(3):  # Three residual blocks
+        block_input = deep_path
+        
+        # Down projection
+        deep_path = Dense(64, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(deep_path)
+        deep_path = LayerNormalization()(deep_path)
+        deep_path = LeakyReLU(alpha=0.2)(deep_path)
+        deep_path = Dropout(0.2)(deep_path)
+        
+        # Up projection
+        deep_path = Dense(128, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(deep_path)
+        deep_path = LayerNormalization()(deep_path)
+        deep_path = LeakyReLU(alpha=0.2)(deep_path)
+        
+        # Residual connection
+        deep_path = Add()([deep_path, block_input])
+        deep_path = Dropout(0.2)(deep_path)
+    
+    # Path 2: Wide network for simpler patterns
+    wide_path = Dense(256, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
+    wide_path = LayerNormalization()(wide_path)
+    wide_path = LeakyReLU(alpha=0.2)(wide_path)
+    wide_path = Dropout(0.3)(wide_path)
+    
+    wide_path = Dense(196, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(wide_path)
+    wide_path = LayerNormalization()(wide_path)
+    wide_path = LeakyReLU(alpha=0.2)(wide_path)
+    wide_path = Dropout(0.25)(wide_path)
+    
+    # Enhanced attention mechanism
+    # Create query, key, value projections for self-attention
+    query = Dense(64, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(deep_path)
+    key = Dense(64, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(deep_path)
+    value = Dense(64, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(deep_path)
+    
+    # Dot product attention (simplified version of the transformer attention)
+    attention_scores = Dense(64, activation='softmax', kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(query)
+    attention_output = Multiply()([attention_scores, value])
+    
+    # Combine paths with attention
+    combined = Concatenate()([deep_path, wide_path, attention_output])
+    
+    # Final layers
+    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(combined)
     x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.3)(x)
-    # Bottleneck up
-    x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    x = LeakyReLU(alpha=0.2)(x)
+    x = Dropout(0.2)(x)
+    
+    x = Dense(64, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
     x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    # Residual connection
-    x = Add()([x, block_input])
-    x = Dropout(0.3)(x)
-    
-    # Self-attention mechanism for feature importance
-    # Create a more straightforward attention mechanism for tabular data
-    attention_features = Dense(128, activation='tanh', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    attention_weights = Dense(128, activation='softmax', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(attention_features)
-    attention_output = Multiply()([x, attention_weights])
-    attention_output = Dropout(0.2)(attention_output)
-    
-    # Split into three branches for multi-scale feature extraction
-    # Wide branch for general patterns
-    wide_branch = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    wide_branch = LayerNormalization()(wide_branch)
-    wide_branch = LeakyReLU(alpha=0.1)(wide_branch)
-    wide_branch = Dropout(0.2)(wide_branch)
-    
-    # Middle branch
-    middle_branch = Dense(96, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    middle_branch = LayerNormalization()(middle_branch)
-    middle_branch = LeakyReLU(alpha=0.1)(middle_branch)
-    middle_branch = Dropout(0.2)(middle_branch)
-    middle_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(middle_branch)
-    middle_branch = LayerNormalization()(middle_branch)
-    middle_branch = LeakyReLU(alpha=0.1)(middle_branch)
-    middle_branch = Dropout(0.15)(middle_branch)
-    
-    # Deep branch for more complex patterns
-    deep_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
-    deep_branch = LayerNormalization()(deep_branch)
-    deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
-    deep_branch = Dropout(0.2)(deep_branch)
-    deep_branch = Dense(48, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(deep_branch)
-    deep_branch = LayerNormalization()(deep_branch)
-    deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
-    deep_branch = Dropout(0.15)(deep_branch)
-    deep_branch = Dense(32, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(deep_branch)
-    deep_branch = LayerNormalization()(deep_branch)
-    deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
-    deep_branch = Dropout(0.1)(deep_branch)
-    
-    # Combine attention with branches
-    merged = Concatenate()([attention_output, wide_branch, middle_branch, deep_branch])
-    
-    # Final layers with gradual reduction
-    x = Dense(96, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(merged)
-    x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(alpha=0.2)(x)
     x = Dropout(0.1)(x)
     
-    x = Dense(48, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
+    # Final ranking-focused layer
+    x = Dense(32, kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
     x = LayerNormalization()(x)
-    x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.05)(x)  # Lower dropout near output
+    x = LeakyReLU(alpha=0.2)(x)
     
-    # Output layer - use linear activation and clip later
+    # Output layer - linear activation for regression
     output = Dense(1, activation='linear')(x)
     
     # Create and compile model
     model = Model(inputs=inputs, outputs=output)
-    optimizer = Adam(learning_rate=LEARNING_RATE)
+    
+    # Use a learning rate scheduler
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=LEARNING_RATE,
+        decay_steps=1000,
+        decay_rate=0.95,
+        staircase=True
+    )
+    
+    optimizer = Adam(learning_rate=lr_schedule)
     model.compile(
         optimizer=optimizer,
         loss='mse',  # Mean squared error for continuous variable
@@ -641,7 +633,17 @@ def main():
             epochs=EPOCHS,
             batch_size=BATCH_SIZE,
             validation_split=0.2,
-            callbacks=[early_stopping, reduce_lr],
+            callbacks=[
+                early_stopping,
+                reduce_lr,
+                # Add a checkpoint callback to save the best model
+                tf.keras.callbacks.ModelCheckpoint(
+                    filepath=f"{OUTPUT_DIR}/best_model.h5",
+                    monitor='val_loss',
+                    save_best_only=True,
+                    verbose=1
+                )
+            ],
             verbose=2
         )
         
