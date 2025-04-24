@@ -10,7 +10,7 @@ OUTPUT_FILE = "../data/normalized_nba_data_with_MVP_rank.csv"
 
 # Define eras
 ERAS = {
-    "Physical Play": (1980, 1989),
+    "Physical Play": (1980, 1994),
     "Isolation": (1995, 2010),
     "Analytics/3PT": (2011, 2023)  # Adjust end year as needed
 }

@@ -18,8 +18,8 @@ import matplotlib.pyplot as plt
 DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
 TEST_SIZE = 0.2
 RANDOM_STATE = 42
-EPOCHS = 500
-BATCH_SIZE = 32
+EPOCHS = 1000
+BATCH_SIZE = 64
 LEARNING_RATE = 0.0001
 PATIENCE = 20  # For early stopping
 TOP_N_FEATURES = 10  # Number of top correlated features to select
