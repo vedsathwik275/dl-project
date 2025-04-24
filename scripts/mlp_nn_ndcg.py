@@ -579,12 +579,14 @@ def main():
         seasons.sort()
         print(f"Available seasons: {seasons}")
         
-        # Number of seasons to use for testing (e.g., 20% of seasons)
-        num_test_seasons = max(1, int(len(seasons) * TEST_SIZE))
+        # Set the number of training seasons (33) and the rest for testing
+        NUM_TRAIN_SEASONS = 33
+        NUM_TEST_SEASONS = len(seasons) - NUM_TRAIN_SEASONS
         
-        # Use the most recent seasons for testing
-        test_seasons = seasons[-num_test_seasons:]
-        train_seasons = seasons[:-num_test_seasons]
+        # Randomly select seasons for training and testing
+        np.random.seed(RANDOM_STATE)  # For reproducibility
+        train_seasons = np.random.choice(seasons, size=NUM_TRAIN_SEASONS, replace=False)
+        test_seasons = np.array([season for season in seasons if season not in train_seasons])
         
         print(f"Training seasons: {train_seasons}")
         print(f"Testing seasons: {test_seasons}")
@@ -604,6 +606,8 @@ def main():
         
         print(f"Training set shape: {X_train.shape}")
         print(f"Test set shape: {X_test.shape}")
+        print(f"Number of training seasons: {len(train_seasons)}")
+        print(f"Number of testing seasons: {len(test_seasons)}")
         
         # Build and train the neural network model
         print(f"\n{'-'*20} Neural Network Training {'-'*20}")
