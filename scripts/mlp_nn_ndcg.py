@@ -438,6 +438,69 @@ def create_ranking_visualizations_ndcg(ndcg_results, k=5):
     
     return summary_df
 
+def save_top5_comparison(results_df, k=5):
+    """
+    Save a comparison of the top 5 actual players vs top 5 predicted players for each season
+    
+    Parameters:
+    - results_df: DataFrame with actual and predicted award shares
+    - k: Number of top players to include (default: 5)
+    
+    Returns:
+    - DataFrame with top-k comparison for each season
+    """
+    print(f"\n{'-'*20} Top {k} Actual vs Predicted Comparison {'-'*20}")
+    
+    # Get unique seasons
+    seasons = results_df['season'].unique()
+    seasons.sort()
+    
+    # Create an empty DataFrame to store all comparisons
+    all_top_comparisons = pd.DataFrame()
+    
+    for season in seasons:
+        season_df = results_df[results_df['season'] == season].copy()
+        
+        # Get top k by actual award share
+        top_actual = season_df.nlargest(k, 'award_share')
+        
+        # Get top k by predicted award share
+        top_predicted = season_df.nlargest(k, 'predicted_award_share')
+        
+        # Create a combined DataFrame for this season
+        comparison_df = pd.DataFrame()
+        comparison_df['season'] = [season] * k
+        comparison_df['rank'] = list(range(1, k+1))
+        
+        # Add actual top players
+        comparison_df['actual_player'] = top_actual['player'].values
+        comparison_df['actual_award_share'] = top_actual['award_share'].values
+        
+        # Add predicted top players
+        comparison_df['predicted_player'] = top_predicted['player'].values
+        comparison_df['predicted_award_share'] = top_predicted['predicted_award_share'].values
+        
+        # Add whether prediction was correct (player in same position)
+        comparison_df['correct_player'] = comparison_df['actual_player'] == comparison_df['predicted_player']
+        
+        # Append to the overall results
+        all_top_comparisons = pd.concat([all_top_comparisons, comparison_df], ignore_index=True)
+    
+    # Save to CSV
+    all_top_comparisons.to_csv(f"{OUTPUT_DIR}/top{k}_actual_vs_predicted.csv", index=False)
+    
+    # Print a summary
+    for season in seasons:
+        season_comp = all_top_comparisons[all_top_comparisons['season'] == season]
+        correct_count = season_comp['correct_player'].sum()
+        print(f"Season {season}: {correct_count}/{k} correct predictions in top {k}")
+    
+    # Overall accuracy
+    overall_accuracy = all_top_comparisons['correct_player'].mean() * 100
+    print(f"\nOverall accuracy for top {k} predictions: {overall_accuracy:.2f}%")
+    
+    return all_top_comparisons
+
 # =============== MAIN EXECUTION ===============
 
 def main():
@@ -639,6 +702,10 @@ def main():
         # Create ranking visualizations
         print("Creating ranking visualizations...")
         summary_df = create_ranking_visualizations_ndcg(results)
+        
+        # Save comparison of top 5 actual vs predicted players
+        print("\nSaving top 5 actual vs predicted players comparison...")
+        top5_comparison = save_top5_comparison(results_df, k=5)
         
         print(f"\n{'='*20} MLP Neural Network Evaluation Complete {'='*20}")
         print(f"Results saved to '{OUTPUT_DIR}/' directory")
