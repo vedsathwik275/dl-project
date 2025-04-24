@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, confusion_matrix
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, confusion_matrix, ndcg_score
 import seaborn as sns
 import os
 import matplotlib.pyplot as plt
@@ -16,8 +16,8 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
 # Configuration
 DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
-OUTPUT_DIR = "../data/nn_evaluation_results"
-PICS_DIR = "../pics"
+OUTPUT_DIR = "../data/nn_evaluation_results_ndcg"
+PICS_DIR = "../pics/ndcg"
 
 # Create output directories if they don't exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -319,207 +319,124 @@ def convert_to_ranks(df, value_col, rank_col_name):
     
     return temp_df
 
-def calculate_rank_accuracy(true_ranks, pred_ranks, max_rank=5):
+def calculate_ndcg(true_values, pred_values, k=5):
     """
-    Calculate accuracy with partial credit:
-    - Exact match: 1.0 (100% correct)
-    - Off by 1 rank: 0.8 (80% credit)
-    - Off by 2 ranks: 0.6 (60% credit)
-    - Off by 3 ranks: 0.4 (40% credit)
-    - Off by 4 ranks: 0.2 (20% credit)
-    - Off by >4 ranks: 0.0 (0% credit)
+    Calculate NDCG (Normalized Discounted Cumulative Gain) for a ranking
     
-    Only considers players with true_rank <= max_rank
+    Parameters:
+    - true_values: array of true relevance scores (award_share)
+    - pred_values: array of predicted relevance scores (predicted_award_share)
+    - k: number of top items to consider (default: 5)
+    
+    Returns:
+    - NDCG score (0-1, with 1 being perfect ranking)
     """
-    # Filter to only include top max_rank players by true rank
-    mask = true_ranks <= max_rank
-    filtered_true = true_ranks[mask]
-    filtered_pred = pred_ranks[mask]
-    
-    # If no players match the criteria, return 0
-    if len(filtered_true) == 0:
+    # If we don't have enough items, return 0
+    if len(true_values) < k:
         return 0
     
-    # Calculate absolute difference
-    rank_diff = np.abs(filtered_pred - filtered_true)
+    # Convert to numpy arrays
+    true_values = np.array(true_values)
+    pred_values = np.array(pred_values)
     
-    # Assign scores based on rank difference
-    scores = np.zeros_like(rank_diff, dtype=float)
-    scores[rank_diff == 0] = 1.0    # Exact matches
-    scores[rank_diff == 1] = 0.8    # Off by one rank
-    scores[rank_diff == 2] = 0.6    # Off by two ranks
-    scores[rank_diff == 3] = 0.4    # Off by three ranks
-    scores[rank_diff == 4] = 0.2    # Off by four ranks
-    scores[rank_diff > 4] = 0.0     # Off by five or more ranks
+    # Get indices that would sort the arrays in descending order
+    true_indices = np.argsort(-true_values)
+    pred_indices = np.argsort(-pred_values)
     
-    # Return the sum of scores (not the average)
-    return scores.sum()
+    # Create binary relevance matrix for scikit-learn ndcg_score
+    # For each element, we need a binary vector where 1 indicates the items in the top-k
+    true_relevance = np.zeros_like(true_values)
+    true_relevance[true_indices[:k]] = 1
+    
+    # Reshape for ndcg_score format (expects 2D arrays)
+    true_relevance = true_relevance.reshape(1, -1)
+    y_score = pred_values.reshape(1, -1)
+    
+    # Calculate NDCG score
+    return ndcg_score(true_relevance, y_score, k=k)
 
-def evaluate_ranking_performance(results_df):
+def evaluate_ranking_performance_ndcg(results_df, k=5):
     """
-    Evaluate ranking performance based on award share predictions
+    Evaluate ranking performance using NDCG metric
+    
+    Parameters:
+    - results_df: DataFrame with actual and predicted award shares
+    - k: top-k players to consider (default: 5)
+    
+    Returns:
+    - NDCG results by season and overall average
     """
-    print(f"\n{'-'*20} Ranking Evaluation {'-'*20}")
+    print(f"\n{'-'*20} NDCG Ranking Evaluation {'-'*20}")
     
-    # Convert award shares to ranks
-    df = convert_to_ranks(results_df, 'award_share', 'actual_rank')
-    df = convert_to_ranks(df, 'predicted_award_share', 'predicted_rank')
-    
-    # Calculate accuracy for each season
-    seasons = df['season'].unique()
+    # Get unique seasons
+    seasons = results_df['season'].unique()
     seasons.sort()
     
-    results = []
-    total_score = 0
-    total_possible = 0
+    ndcg_results = []
+    all_ndcg_scores = []
     
     for season in seasons:
-        season_df = df[df['season'] == season].copy()
+        season_df = results_df[results_df['season'] == season].copy()
         
-        # Get number of top-5 players in this season
-        top5_count = len(season_df[season_df['actual_rank'] <= 5])
-        total_possible += top5_count
-        
-        # Calculate accuracy for this season
-        score = calculate_rank_accuracy(
-            season_df['actual_rank'].values,
-            season_df['predicted_rank'].values
+        # Calculate NDCG for this season
+        ndcg = calculate_ndcg(
+            season_df['award_share'].values,
+            season_df['predicted_award_share'].values,
+            k=k
         )
         
-        total_score += score
-        
-        # Get details for top 5 players
-        top5_df = season_df[season_df['actual_rank'] <= 5].sort_values('actual_rank')
-        player_details = []
-        
-        for _, row in top5_df.iterrows():
-            player_detail = {
-                'player': row['player'],
-                'actual_rank': int(row['actual_rank']),
-                'predicted_rank': int(row['predicted_rank']),
-                'actual_award_share': row['award_share'],
-                'predicted_award_share': row['predicted_award_share'],
-                'rank_diff': int(row['predicted_rank'] - row['actual_rank']),
-                'points': 0.0
-            }
-            
-            # Calculate points for this player
-            diff = abs(player_detail['rank_diff'])
-            if diff == 0:
-                player_detail['points'] = 1.0
-            elif diff == 1:
-                player_detail['points'] = 0.8
-            elif diff == 2:
-                player_detail['points'] = 0.6
-            elif diff == 3:
-                player_detail['points'] = 0.4
-            elif diff == 4:
-                player_detail['points'] = 0.2
-            else:
-                player_detail['points'] = 0.0
-            
-            player_details.append(player_detail)
-        
-        results.append({
+        ndcg_results.append({
             'season': season,
-            'score': score,
-            'max_score': top5_count,
-            'accuracy': score / top5_count if top5_count > 0 else 0,
-            'player_details': player_details
+            'ndcg': ndcg,
         })
+        all_ndcg_scores.append(ndcg)
     
-    # 4. Display results by season
-    print("\nRanking accuracy by season:")
-    print(f"{'Season':<10} {'Score':<10} {'Accuracy':<10}")
+    # Display results by season
+    print(f"\nNDCG@{k} by season:")
+    print(f"{'Season':<10} {'NDCG@'+str(k):<10}")
     print("-" * 30)
     
-    for r in results:
-        print(f"{r['season']:<10} {r['score']:.1f}/{r['max_score']:.1f}{'':<5} {r['accuracy']*100:.1f}%")
+    for r in ndcg_results:
+        print(f"{r['season']:<10} {r['ndcg']:.4f}")
     
+    # Calculate and display average NDCG
+    average_ndcg = np.mean(all_ndcg_scores)
     print("-" * 30)
-    overall_accuracy = total_score / total_possible if total_possible > 0 else 0
-    print(f"Overall: {total_score:.1f}/{total_possible:.1f} ({overall_accuracy*100:.1f}%)")
+    print(f"Average NDCG@{k}: {average_ndcg:.4f}")
     
-    return results, df
+    return ndcg_results, average_ndcg
 
-def create_ranking_visualizations(results, df):
+def create_ranking_visualizations_ndcg(ndcg_results, k=5):
     """
-    Create visualizations for ranking evaluation
+    Create visualizations for NDCG evaluation
     """
-    # Prepare data for detailed CSV
-    detail_rows = []
-    for r in results:
-        for p in r['player_details']:
-            detail_rows.append({
-                'season': r['season'],
-                'player': p['player'],
-                'actual_rank': p['actual_rank'],
-                'predicted_rank': p['predicted_rank'],
-                'actual_award_share': p['actual_award_share'],
-                'predicted_award_share': p['predicted_award_share'],
-                'rank_diff': p['rank_diff'],
-                'points': p['points']
-            })
+    # Create a DataFrame for easier plotting
+    ndcg_df = pd.DataFrame(ndcg_results)
     
-    detail_df = pd.DataFrame(detail_rows)
+    # Save NDCG results to CSV
+    ndcg_df.to_csv(f"{OUTPUT_DIR}/ndcg_results.csv", index=False)
     
-    # Reorder columns to have award shares side by side before accuracy metrics
-    column_order = ['season', 'player', 'actual_rank', 'predicted_rank', 
-                   'actual_award_share', 'predicted_award_share', 
-                   'rank_diff', 'points']
-    detail_df = detail_df[column_order]
-    detail_df.to_csv(f"{OUTPUT_DIR}/top5_rank_evaluation.csv", index=False)
-    
-    # Create a summary DataFrame
-    summary_df = pd.DataFrame([{
-        'season': r['season'],
-        'score': r['score'],
-        'accuracy': r['accuracy']
-    } for r in results])
-    summary_df.to_csv(f"{OUTPUT_DIR}/season_accuracy_summary.csv", index=False)
-    
-    # Bar chart of accuracy by season
+    # Bar chart of NDCG by season
     plt.figure(figsize=(12, 6))
-    sns.barplot(x='season', y='accuracy', data=summary_df, palette='viridis')
-    plt.title('Top-5 Ranking Accuracy by Season')
+    sns.barplot(x='season', y='ndcg', data=ndcg_df, palette='viridis')
+    plt.title(f'NDCG@{k} by Season')
     plt.xlabel('Season')
-    plt.ylabel('Accuracy')
+    plt.ylabel(f'NDCG@{k}')
     plt.ylim(0, 1)
     plt.xticks(rotation=45)
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f"{PICS_DIR}/rank_accuracy_by_season.png")
+    plt.savefig(f"{PICS_DIR}/ndcg_by_season.png")
     
-    # Distribution of rank differences
-    plt.figure(figsize=(10, 6))
-    sns.countplot(x='rank_diff', data=detail_df, palette='viridis')
-    plt.title('Distribution of Rank Prediction Errors (Top-5 Players Only)')
-    plt.xlabel('Rank Error (Predicted - Actual)')
-    plt.ylabel('Count')
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f"{PICS_DIR}/rank_error_distribution.png")
+    # Calculate average NDCG
+    average_ndcg = ndcg_df['ndcg'].mean()
     
-    # Confusion matrix for top-5 ranks
-    plt.figure(figsize=(10, 8))
+    # Create a DataFrame with season-wise and average NDCG
+    summary_df = ndcg_df.copy()
+    summary_df['average_ndcg'] = average_ndcg
+    summary_df.to_csv(f"{OUTPUT_DIR}/ndcg_summary.csv", index=False)
     
-    # Create confusion matrix
-    cm = confusion_matrix(
-        detail_df['actual_rank'],
-        detail_df['predicted_rank'],
-        labels=range(1, 6)
-    )
-    
-    # Plot heatmap
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-               xticklabels=range(1, 6), yticklabels=range(1, 6))
-    plt.xlabel('Predicted Rank')
-    plt.ylabel('True Rank')
-    plt.title('Confusion Matrix of Top-5 MVP Rank Predictions')
-    plt.tight_layout()
-    plt.savefig(f"{PICS_DIR}/rank_confusion_matrix.png")
-    
-    return detail_df
+    return summary_df
 
 # =============== MAIN EXECUTION ===============
 
@@ -717,29 +634,11 @@ def main():
         
         # Evaluate ranking performance
         print("\nEvaluating ranking performance...")
-        results, ranked_df = evaluate_ranking_performance(results_df)
+        results, average_ndcg = evaluate_ranking_performance_ndcg(results_df)
         
         # Create ranking visualizations
         print("Creating ranking visualizations...")
-        detail_df = create_ranking_visualizations(results, ranked_df)
-        
-        # Print detailed breakdown of each season's top 5 players
-        print("\nDetailed breakdown of top-5 players by season:")
-        
-        for r in results:
-            print(f"\nSeason: {r['season']} (Score: {r['score']:.1f}/{r['max_score']:.1f})")
-            print(f"{'Player':<25} {'True Rank':<10} {'Pred Rank':<10} {'True Award':<12} {'Pred Award':<12} {'Diff':<6} {'Points':<6}")
-            print("-" * 85)
-            
-            for p in r['player_details']:
-                print(f"{p['player']:<25} {p['actual_rank']:<10} {p['predicted_rank']:<10} " +
-                      f"{p['actual_award_share']:<12.3f} {p['predicted_award_share']:<12.3f} " +
-                      f"{p['rank_diff']:<6} {p['points']:.1f}")
-        
-        # # Save the model
-        # model_path = f"{OUTPUT_DIR}/award_share_prediction_model"
-        # mlp_model.save(model_path)
-        # print(f"\nModel saved to '{model_path}'")
+        summary_df = create_ranking_visualizations_ndcg(results)
         
         print(f"\n{'='*20} MLP Neural Network Evaluation Complete {'='*20}")
         print(f"Results saved to '{OUTPUT_DIR}/' directory")
