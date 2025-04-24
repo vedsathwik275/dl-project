@@ -131,11 +131,90 @@ class ResidualBlock(Layer):
         x = self.dropout2(x, training=training)
         return self.layernorm(inputs + x)
 
+# =============== ADVANCED HELPER LAYERS ===============
+
+class FeatureInteractionLayer(Layer):
+    """
+    Layer that explicitly models pairwise feature interactions
+    """
+    def __init__(self, output_dim):
+        super(FeatureInteractionLayer, self).__init__()
+        self.output_dim = output_dim
+        self.interaction_weight = None  # Will be created in build
+        
+    def build(self, input_shape):
+        # Create weights for feature interactions
+        self.interaction_weight = self.add_weight(
+            name='interaction_weights',
+            shape=(input_shape[-1], input_shape[-1], self.output_dim),
+            initializer='glorot_uniform',
+            trainable=True
+        )
+        super(FeatureInteractionLayer, self).build(input_shape)
+        
+    def call(self, inputs):
+        # Compute pairwise feature interactions
+        batch_size = tf.shape(inputs)[0]
+        # Reshape for broadcasting
+        x_reshaped = tf.reshape(inputs, [batch_size, inputs.shape[1], 1])
+        # First interaction term (batch_size, input_dim, 1) * (batch_size, 1, input_dim)
+        interactions = tf.matmul(x_reshaped, tf.expand_dims(inputs, 1))
+        # Apply weights to interactions and reduce
+        weighted = tf.tensordot(interactions, self.interaction_weight, axes=[[1, 2], [0, 1]])
+        return weighted
+    
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.output_dim)
+
+class SelfNormalizedAttention(Layer):
+    """
+    Self-normalized attention layer specifically designed for tabular data
+    """
+    def __init__(self, attention_dim=32):
+        super(SelfNormalizedAttention, self).__init__()
+        self.attention_dim = attention_dim
+        self.W = None
+        self.b = None
+        self.u = None
+        
+    def build(self, input_shape):
+        self.W = self.add_weight(
+            name='attention_weight',
+            shape=(input_shape[-1], self.attention_dim),
+            initializer='glorot_uniform',
+            trainable=True
+        )
+        self.b = self.add_weight(
+            name='attention_bias',
+            shape=(self.attention_dim,),
+            initializer='zeros',
+            trainable=True
+        )
+        self.u = self.add_weight(
+            name='context_vector',
+            shape=(self.attention_dim,),
+            initializer='glorot_uniform',
+            trainable=True
+        )
+        super(SelfNormalizedAttention, self).build(input_shape)
+    
+    def call(self, inputs):
+        # Compute attention weights
+        # (batch_size, time_steps, attention_dim)
+        attention = tf.tanh(tf.matmul(inputs, self.W) + self.b)
+        # (batch_size, time_steps)
+        attention_weights = tf.nn.softmax(tf.reduce_sum(attention * self.u, axis=-1), axis=1)
+        # Apply attention weights
+        # (batch_size, dim)
+        weighted_sum = tf.reduce_sum(inputs * tf.expand_dims(attention_weights, -1), axis=1)
+        return weighted_sum, attention_weights
+
 # =============== ENSEMBLE MODEL BUILDING FUNCTION ===============
 
 def build_ensemble_model(input_shape, transformer_dim=96, mlp_dim=128, num_heads=4, num_transformer_blocks=2, dropout_rate=0.3):
     """
-    Build an ensemble model combining Transformer and MLP architectures
+    Build an enhanced ensemble model combining Transformer and MLP architectures
+    with feature interactions and self-normalized attention
     
     Parameters:
     - input_shape: Shape of input features
@@ -150,6 +229,9 @@ def build_ensemble_model(input_shape, transformer_dim=96, mlp_dim=128, num_heads
     """
     # Input layer (shared)
     inputs = Input(shape=(input_shape,))
+    
+    # Feature interactions - explicitly model pairwise feature interactions
+    feature_interactions = FeatureInteractionLayer(output_dim=32)(inputs)
     
     # ---- TRANSFORMER BRANCH ----
     # Embed input features for transformer
@@ -190,7 +272,21 @@ def build_ensemble_model(input_shape, transformer_dim=96, mlp_dim=128, num_heads
     m_output = LeakyReLU(alpha=0.2)(m_output)
     m_output = Dropout(dropout_rate)(m_output)
     
-    # ---- COMBINE BRANCHES ----
+    # ---- SELF-NORMALIZED ATTENTION BRANCH ----
+    # Create a sequence of feature transformations for attention
+    attention_input = tf.stack(
+        [
+            Dense(32, activation='relu')(inputs),
+            Dense(32, activation='tanh')(inputs),
+            Dense(32, activation='sigmoid')(inputs)
+        ],
+        axis=1
+    )
+    
+    # Apply self-normalized attention
+    attention_output, attention_weights = SelfNormalizedAttention()(attention_input)
+    
+    # ---- COMBINE ALL BRANCHES ----
     # Process each branch before combining
     t_processed = Dense(64, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(t_output)
     t_processed = LayerNormalization()(t_processed)
@@ -200,10 +296,29 @@ def build_ensemble_model(input_shape, transformer_dim=96, mlp_dim=128, num_heads
     m_processed = BatchNormalization()(m_processed)
     m_processed = Dropout(dropout_rate/2)(m_processed)
     
-    # Concatenate the processed outputs
-    combined = Concatenate()([t_processed, m_processed])
+    # Process feature interactions
+    interactions_processed = Dense(32, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(feature_interactions)
+    interactions_processed = BatchNormalization()(interactions_processed)
+    interactions_processed = Dropout(dropout_rate/2)(interactions_processed)
+    
+    # Process attention output
+    attention_processed = Dense(32, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(attention_output)
+    attention_processed = LayerNormalization()(attention_processed)
+    attention_processed = Dropout(dropout_rate/2)(attention_processed)
+    
+    # Concatenate all processed outputs
+    combined = Concatenate()([
+        t_processed, 
+        m_processed, 
+        interactions_processed,
+        attention_processed
+    ])
     
     # Integration layers
+    combined = Dense(128, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(combined)
+    combined = LayerNormalization()(combined)
+    combined = Dropout(dropout_rate/2)(combined)
+    
     combined = Dense(64, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(combined)
     combined = LayerNormalization()(combined)
     combined = Dropout(dropout_rate/2)(combined)
@@ -535,10 +650,50 @@ def save_top5_comparison(results_df, k=5):
     
     return all_top_comparisons
 
+# =============== CUSTOM TRAINING FUNCTION WITH CLASS WEIGHTING ===============
+
+def train_model_with_weighting(model, X_train, y_train, epochs, batch_size, validation_split=0.2, callbacks=None):
+    """
+    Train model with sample weighting to handle class imbalance
+    - Gives higher weight to actual vote-getters (non-zero award shares)
+    """
+    # Create sample weights - higher for actual vote getters
+    sample_weights = np.ones(len(y_train))
+    
+    # Identify vote getters (non-zero award shares)
+    vote_getters = y_train > 0
+    
+    # Calculate class ratio for balancing
+    n_non_vote = np.sum(~vote_getters)
+    n_vote = np.sum(vote_getters)
+    vote_weight = n_non_vote / n_vote if n_vote > 0 else 1.0
+    
+    # Set higher weights for vote getters - the higher their award share, the higher the weight
+    for i in range(len(y_train)):
+        if vote_getters[i]:
+            # Scale weight by award share value (so higher shares get higher weights)
+            # Minimum weight is vote_weight, max is vote_weight * 10 for award_share=1.0
+            sample_weights[i] = vote_weight * (1.0 + 9.0 * y_train[i])
+    
+    print(f"Training with weighted samples - Vote getters weight range: {vote_weight:.2f} to {vote_weight * 10:.2f}")
+    
+    # Train the model with sample weights
+    history = model.fit(
+        X_train, y_train,
+        sample_weight=sample_weights,
+        epochs=epochs,
+        batch_size=batch_size,
+        validation_split=validation_split,
+        callbacks=callbacks,
+        verbose=2
+    )
+    
+    return history
+
 # =============== MAIN EXECUTION ===============
 
 def main():
-    print(f"{'='*20} MVP Award Share Prediction - Ensemble Model {'='*20}")
+    print(f"{'='*20} MVP Award Share Prediction - Enhanced Ensemble Model {'='*20}")
 
     try:
         # Check for TensorFlow GPU support
@@ -647,7 +802,7 @@ def main():
         print(f"Number of testing seasons: {len(test_seasons)}")
         
         # Build and train the ensemble model
-        print(f"\n{'-'*20} Ensemble Model Training {'-'*20}")
+        print(f"\n{'-'*20} Enhanced Ensemble Model Training {'-'*20}")
         ensemble_model = build_ensemble_model(X_train.shape[1])
         
         # Calculate model size
@@ -682,9 +837,10 @@ def main():
             verbose=1
         )
         
-        # Train model
-        print("\nTraining ensemble model...")
-        history = ensemble_model.fit(
+        # Train model with sample weighting
+        print("\nTraining enhanced ensemble model with class weighting...")
+        history = train_model_with_weighting(
+            ensemble_model,
             X_train, y_train,
             epochs=EPOCHS,
             batch_size=BATCH_SIZE,
@@ -692,8 +848,7 @@ def main():
             callbacks=[
                 early_stopping,
                 reduce_lr,
-            ],
-            verbose=2
+            ]
         )
         
         # Plot training history
@@ -765,7 +920,7 @@ def main():
         print("\nSaving top 5 actual vs predicted players comparison...")
         top5_comparison = save_top5_comparison(results_df, k=5)
         
-        print(f"\n{'='*20} Ensemble Model Evaluation Complete {'='*20}")
+        print(f"\n{'='*20} Enhanced Ensemble Model Evaluation Complete {'='*20}")
         print(f"Results saved to '{OUTPUT_DIR}/' directory")
         print(f"Visualizations saved to '{PICS_DIR}/' directory")
         
