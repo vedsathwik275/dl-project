@@ -269,19 +269,42 @@ def main():
         df['award_share'] = df['award_share'].fillna(0)
         
         # Identify non-statistical columns to exclude from normalization
-        non_stat_columns = ['player', 'team', 'pos', 'season', 'award_share', 'MVP_rank', 'MVP_winner']
+        non_stat_columns = ['player', 'pos', 'team_id', 'season', 'award_share', 'MVP_rank', 'MVP_winner']
         
-        # Get all feature columns (excluding the non-statistical ones)
-        feature_columns = [col for col in df.columns if col not in non_stat_columns]
-        print(f"Number of features to use: {len(feature_columns)}")
+        # Step 1: Perform one-hot encoding for categorical variables
+        print("Performing one-hot encoding for categorical variables...")
         
-        # Normalize statistical features using StandardScaler
+        # One-hot encode position (pos)
+        pos_dummies = pd.get_dummies(df['pos'], prefix='pos')
+        
+        # One-hot encode team_id (limit to most common teams to avoid too many columns)
+        # Get top 30 teams by frequency
+        top_teams = df['team_id'].value_counts().nlargest(30).index
+        # Replace less common teams with 'OTHER'
+        df['team_id_grouped'] = df['team_id'].apply(lambda x: x if x in top_teams else 'OTHER')
+        # Create dummies
+        team_dummies = pd.get_dummies(df['team_id_grouped'], prefix='team')
+        
+        # Step 2: Get numeric columns excluding the non-statistical ones
+        numeric_columns = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        feature_columns = [col for col in numeric_columns if col not in non_stat_columns]
+        print(f"Number of numeric features: {len(feature_columns)}")
+        
+        # Step 3: Normalize statistical features using StandardScaler
         print(f"Normalizing {len(feature_columns)} statistical features...")
         scaler = StandardScaler()
         df[feature_columns] = scaler.fit_transform(df[feature_columns])
         
-        # Create feature matrix with all statistical features
-        X = df[feature_columns]
+        # Step 4: Combine all features: normalized numeric + one-hot encoded categorical
+        # Concatenate the original dataframe with the one-hot encoded features
+        df_encoded = pd.concat([df[feature_columns], pos_dummies, team_dummies], axis=1)
+        
+        # Create feature matrix with all features
+        X = df_encoded
+        
+        # Report final feature dimensions
+        print(f"Final feature matrix shape after encoding: {X.shape}")
+        print(f"Total number of features: {X.shape[1]}")
         
         # Target variable - award_share
         y = df['award_share']
