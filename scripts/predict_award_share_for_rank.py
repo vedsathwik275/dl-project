@@ -17,11 +17,11 @@ import matplotlib.pyplot as plt
 # Configuration
 DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
 TEST_SIZE = 0.2
-RANDOM_STATE = 42
+RANDOM_STATE = 423
 EPOCHS = 1000
 BATCH_SIZE = 64
-LEARNING_RATE = 0.0001
-PATIENCE = 20  # For early stopping
+LEARNING_RATE = 0.0005
+PATIENCE = 30  # For early stopping
 TOP_N_FEATURES = 10  # Number of top correlated features to select
 
 # Define all possible features
@@ -53,36 +53,36 @@ def build_mlp_model(input_shape):
     x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.4)(x)
+    x = Dropout(0.3)(x)
     
     # Residual block 1
     block_input = x
     x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.4)(x)
+    x = Dropout(0.3)(x)
     x = Dense(128, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.1)(x)
     x = Add()([x, block_input])  # Residual connection
-    x = Dropout(0.4)(x)
+    x = Dropout(0.3)(x)
     
     # Split into two branches for feature extraction at different levels
     # Branch 1: Wide branch for general patterns
     wide_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
     wide_branch = BatchNormalization()(wide_branch)
     wide_branch = LeakyReLU(alpha=0.1)(wide_branch)
-    wide_branch = Dropout(0.3)(wide_branch)
+    wide_branch = Dropout(0.2)(wide_branch)
     
     # Branch 2: Deep branch for more complex patterns
     deep_branch = Dense(64, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(x)
     deep_branch = BatchNormalization()(deep_branch)
     deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
-    deep_branch = Dropout(0.3)(deep_branch)
+    deep_branch = Dropout(0.2)(deep_branch)
     deep_branch = Dense(32, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(deep_branch)
     deep_branch = BatchNormalization()(deep_branch)
     deep_branch = LeakyReLU(alpha=0.1)(deep_branch)
-    deep_branch = Dropout(0.3)(deep_branch)
+    deep_branch = Dropout(0.2)(deep_branch)
     
     # Merge branches
     merged = Concatenate()([wide_branch, deep_branch])
@@ -91,10 +91,10 @@ def build_mlp_model(input_shape):
     x = Dense(32, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-4))(merged)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.1)(x)
-    x = Dropout(0.2)(x)
+    x = Dropout(0.1)(x)
     
-    # Output layer - use sigmoid activation to ensure output is in 0-1 range
-    output = Dense(1, activation='sigmoid')(x)
+    # Output layer - use linear activation and clip later
+    output = Dense(1, activation='linear')(x)
     
     # Create and compile model
     model = Model(inputs=inputs, outputs=output)
@@ -389,7 +389,7 @@ try:
     reduce_lr = ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
-        patience=10,
+        patience=15,
         min_lr=1e-6,
         verbose=1
     )
