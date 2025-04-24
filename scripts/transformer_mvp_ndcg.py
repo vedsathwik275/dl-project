@@ -27,10 +27,10 @@ os.makedirs(PICS_DIR, exist_ok=True)
 # Training parameters
 TEST_SIZE = 0.2
 RANDOM_STATE = 423
-EPOCHS = 200
-BATCH_SIZE = 64
-LEARNING_RATE = 0.002
-PATIENCE = 15
+EPOCHS = 400
+BATCH_SIZE = 48
+LEARNING_RATE = 0.001
+PATIENCE = 25
 
 # Define all possible features
 all_features = [
@@ -93,6 +93,7 @@ class TransformerBlock(Layer):
         self.att = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim//num_heads)
         self.ffn = tf.keras.Sequential([
             Dense(ff_dim, activation="relu", kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3)),
+            Dropout(rate/2),
             Dense(embed_dim, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3)),
         ])
         self.layernorm1 = LayerNormalization(epsilon=1e-6)
@@ -108,35 +109,37 @@ class TransformerBlock(Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
 
-class FeatureEmbedding(Layer):
+# Add a residual block for enhanced performance
+class ResidualBlock(Layer):
     """
-    Layer to transform input features into a higher-dimensional embedding space.
+    Residual block with skip connections for better gradient flow
     """
-    def __init__(self, embed_dim):
-        super(FeatureEmbedding, self).__init__()
-        self.embed_dim = embed_dim
-        self.embedding = Dense(embed_dim, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))
+    def __init__(self, units, dropout_rate=0.3):
+        super(ResidualBlock, self).__init__()
+        self.dense1 = Dense(units, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))
+        self.dropout1 = Dropout(dropout_rate)
         self.layernorm = LayerNormalization(epsilon=1e-6)
-        self.expand_dims = ExpandDimsLayer(axis=1)
-
-    def call(self, inputs):
-        # Reshape input features to [batch_size, sequence_length=1, feature_dim]
-        x = self.expand_dims(inputs)
-        # Project to embedding dimension
-        x = self.embedding(x)
-        return self.layernorm(x)
+        self.dense2 = Dense(units, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))
+        self.dropout2 = Dropout(dropout_rate)
+        
+    def call(self, inputs, training=None):
+        x = self.dense1(inputs)
+        x = self.dropout1(x, training=training)
+        x = self.dense2(x)
+        x = self.dropout2(x, training=training)
+        return self.layernorm(inputs + x)
 
 # =============== MODEL BUILDING FUNCTION ===============
 
-def build_transformer_model(input_shape, embed_dim=64, num_heads=4, num_transformer_blocks=2, dropout_rate=0.3):
+def build_transformer_model(input_shape, embed_dim=128, num_heads=6, num_transformer_blocks=4, dropout_rate=0.3):
     """
-    Build a transformer-based model for award share prediction.
+    Build a more complex transformer-based model for award share prediction.
     
     Parameters:
     - input_shape: Shape of input features
-    - embed_dim: Dimension of the embedding space (default: 64)
-    - num_heads: Number of attention heads (default: 4)
-    - num_transformer_blocks: Number of transformer blocks (default: 2)
+    - embed_dim: Dimension of the embedding space (default: 128)
+    - num_heads: Number of attention heads (default: 6)
+    - num_transformer_blocks: Number of transformer blocks (default: 4)
     - dropout_rate: Dropout rate (default: 0.3)
     
     Returns:
@@ -145,25 +148,40 @@ def build_transformer_model(input_shape, embed_dim=64, num_heads=4, num_transfor
     # Input layer
     inputs = Input(shape=(input_shape,))
     
-    # Embed input features into lower-dimensional space (reduced from 512 to 64)
+    # Embed input features with residual block
     x = Dense(embed_dim, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(inputs)
     x = LayerNormalization()(x)
     x = Dropout(dropout_rate)(x)
     
+    # Apply a residual block before transformer
+    x = ResidualBlock(embed_dim, dropout_rate)(x)
+    
     # Reshape for transformer: [batch_size, 1, embed_dim]
     x = ExpandDimsLayer(axis=1)(x)
     
-    # Apply transformer blocks (reduced from 6 to 2)
-    for _ in range(num_transformer_blocks):
-        x = TransformerBlock(embed_dim, num_heads, embed_dim * 2, dropout_rate)(x)
+    # Apply transformer blocks 
+    for i in range(num_transformer_blocks):
+        x = TransformerBlock(
+            embed_dim, 
+            num_heads, 
+            embed_dim * 2,  # No need for 4x expansion in feed-forward layer for smaller model
+            dropout_rate
+        )(x)
     
     # Flatten the output
     x = SqueezeLayer(axis=1)(x)
     
-    # Simplify final layers (reduced dimensions and added stronger regularization)
-    x = Dense(32, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(x)
+    # More complex head with residual blocks
+    x = ResidualBlock(embed_dim, dropout_rate)(x)
+    
+    # Dense layers with skip connections
+    x = Dense(64, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(x)
     x = LayerNormalization()(x)
     x = Dropout(dropout_rate)(x)
+    
+    x = Dense(32, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(x)
+    x = LayerNormalization()(x)
+    x = Dropout(dropout_rate/2)(x)
     
     # Output layer - with sigmoid for award share prediction (0-1 range)
     output = Dense(1, activation='sigmoid')(x)
