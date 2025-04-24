@@ -13,6 +13,7 @@ from tensorflow.keras.layers import Dense, Dropout, Input, Embedding, Layer, Lay
 from tensorflow.keras.regularizers import l1_l2
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras import backend as K
 
 # Configuration
 DATA_FILE = "../data/normalized_nba_data_with_MVP_rank_simple.csv"
@@ -26,10 +27,10 @@ os.makedirs(PICS_DIR, exist_ok=True)
 # Training parameters
 TEST_SIZE = 0.2
 RANDOM_STATE = 423
-EPOCHS = 1200
-BATCH_SIZE = 32
-LEARNING_RATE = 0.001
-PATIENCE = 50
+EPOCHS = 200
+BATCH_SIZE = 64
+LEARNING_RATE = 0.002
+PATIENCE = 15
 
 # Define all possible features
 all_features = [
@@ -89,10 +90,10 @@ class TransformerBlock(Layer):
     """
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.3):
         super(TransformerBlock, self).__init__()
-        self.att = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+        self.att = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim//num_heads)
         self.ffn = tf.keras.Sequential([
-            Dense(ff_dim, activation="relu"),
-            Dense(embed_dim),
+            Dense(ff_dim, activation="relu", kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3)),
+            Dense(embed_dim, kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3)),
         ])
         self.layernorm1 = LayerNormalization(epsilon=1e-6)
         self.layernorm2 = LayerNormalization(epsilon=1e-6)
@@ -114,7 +115,7 @@ class FeatureEmbedding(Layer):
     def __init__(self, embed_dim):
         super(FeatureEmbedding, self).__init__()
         self.embed_dim = embed_dim
-        self.embedding = Dense(embed_dim, activation='relu')
+        self.embedding = Dense(embed_dim, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))
         self.layernorm = LayerNormalization(epsilon=1e-6)
         self.expand_dims = ExpandDimsLayer(axis=1)
 
@@ -127,15 +128,15 @@ class FeatureEmbedding(Layer):
 
 # =============== MODEL BUILDING FUNCTION ===============
 
-def build_transformer_model(input_shape, embed_dim=512, num_heads=8, num_transformer_blocks=6, dropout_rate=0.3):
+def build_transformer_model(input_shape, embed_dim=64, num_heads=4, num_transformer_blocks=2, dropout_rate=0.3):
     """
     Build a transformer-based model for award share prediction.
     
     Parameters:
     - input_shape: Shape of input features
-    - embed_dim: Dimension of the embedding space (default: 512)
-    - num_heads: Number of attention heads (default: 8)
-    - num_transformer_blocks: Number of transformer blocks (default: 6)
+    - embed_dim: Dimension of the embedding space (default: 64)
+    - num_heads: Number of attention heads (default: 4)
+    - num_transformer_blocks: Number of transformer blocks (default: 2)
     - dropout_rate: Dropout rate (default: 0.3)
     
     Returns:
@@ -144,31 +145,27 @@ def build_transformer_model(input_shape, embed_dim=512, num_heads=8, num_transfo
     # Input layer
     inputs = Input(shape=(input_shape,))
     
-    # Embed input features into 512-dimensional space
-    x = Dense(embed_dim, activation='relu', kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(inputs)
+    # Embed input features into lower-dimensional space (reduced from 512 to 64)
+    x = Dense(embed_dim, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(inputs)
     x = LayerNormalization()(x)
     x = Dropout(dropout_rate)(x)
     
     # Reshape for transformer: [batch_size, 1, embed_dim]
     x = ExpandDimsLayer(axis=1)(x)
     
-    # Apply transformer blocks
+    # Apply transformer blocks (reduced from 6 to 2)
     for _ in range(num_transformer_blocks):
-        x = TransformerBlock(embed_dim, num_heads, embed_dim * 4, dropout_rate)(x)
+        x = TransformerBlock(embed_dim, num_heads, embed_dim * 2, dropout_rate)(x)
     
     # Flatten the output
     x = SqueezeLayer(axis=1)(x)
     
-    # Final layers
-    x = Dense(256, activation='relu', kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
+    # Simplify final layers (reduced dimensions and added stronger regularization)
+    x = Dense(32, activation='relu', kernel_regularizer=l1_l2(l1=1e-5, l2=1e-3))(x)
     x = LayerNormalization()(x)
     x = Dropout(dropout_rate)(x)
     
-    x = Dense(128, activation='relu', kernel_regularizer=l1_l2(l1=1e-6, l2=1e-4))(x)
-    x = LayerNormalization()(x)
-    x = Dropout(dropout_rate)(x)
-    
-    # Output layer - with softmax for award share prediction
+    # Output layer - with sigmoid for award share prediction (0-1 range)
     output = Dense(1, activation='sigmoid')(x)
     
     # Create and compile model
@@ -617,6 +614,20 @@ def main():
         # Build and train the transformer model
         print(f"\n{'-'*20} Transformer Model Training {'-'*20}")
         transformer_model = build_transformer_model(X_train.shape[1])
+        
+        # Calculate model size
+        trainable_count = np.sum([K.count_params(w) for w in transformer_model.trainable_weights])
+        non_trainable_count = np.sum([K.count_params(w) for w in transformer_model.non_trainable_weights])
+        
+        # Convert to MB
+        trainable_mb = trainable_count * 4 / (1024 * 1024)  # Assuming float32 (4 bytes)
+        non_trainable_mb = non_trainable_count * 4 / (1024 * 1024)
+        
+        print(f"\nModel Size Summary:")
+        print(f"Total parameters: {trainable_count + non_trainable_count:,}")
+        print(f"Trainable parameters: {trainable_count:,} ({trainable_mb:.2f} MB)")
+        print(f"Non-trainable parameters: {non_trainable_count:,} ({non_trainable_mb:.2f} MB)")
+        
         print(transformer_model.summary())
         
         # Early stopping to prevent overfitting
@@ -631,8 +642,8 @@ def main():
         reduce_lr = ReduceLROnPlateau(
             monitor='val_loss',
             factor=0.5,
-            patience=15,
-            min_lr=1e-6,
+            patience=5,  # Reduced from 15
+            min_lr=1e-5,
             verbose=1
         )
         
