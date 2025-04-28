@@ -139,12 +139,12 @@ Model performance evaluated using Normalized Discounted Cumulative Gain at 5 (ND
 | Model              | Average NDCG@5 |
 |:-------------------|:--------------:|
 | Linear Regression  | 0.580          |
-| Random Forest      | 0.681          |
+| Random Forest      | 0.663          |
 | Gradient Boosting  | 0.678          |
-| Simple MLP         | N/A            |
-| Advanced MLP       | 0.805          |
-| Transformer        | 0.768          |
-| Ensemble           | 0.751          |
+| Simple MLP         | 0.799          |
+| Advanced MLP       | 0.802          |
+| Transformer        | 0.772          |
+| Ensemble           | 0.759          |
 
 The Advanced MLP model achieved the best performance in ranking players according to MVP voting patterns.
 
