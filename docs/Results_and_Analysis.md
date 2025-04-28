@@ -18,12 +18,21 @@ Summarize the key performance metrics (Overall Custom Rank Accuracy, Average NDC
 
 *(Populate the table with actual results from running the scripts, typically found in saved CSV files like `model_comparison_with_ndcg.csv` or printed output.)*
 
-## 2. Analysis of Ranking Performance
+## 2. Results Summary
 
-*   **NDCG Trends:** Discuss how NDCG@5 varies across seasons for the best-performing models (referencing `ndcg_by_season.png`). Are there specific eras or seasons that are harder/easier to rank?
-*   **Custom Accuracy Trends:** Similarly, discuss the trends in the custom rank accuracy metric across seasons (`rank_accuracy_by_season.png`).
-*   **Top-k Comparison Insights:** Analyze the `top5_actual_vs_predicted.csv` files. How often do the models correctly identify the exact player at each rank (1-5)? Where do the biggest discrepancies occur?
-*   **Error Analysis:** Examine the rank error distributions (`rank_error_distribution.png`) and confusion matrices (`rank_confusion_matrix.png`). Are models more likely to be off by 1 rank, or are there larger errors? Do they confuse specific ranks frequently (e.g., predicting rank 2 as rank 3)?
+Model performance evaluated using Normalized Discounted Cumulative Gain at 5 (NDCG@5):
+
+| Model              | Average NDCG@5 |
+|:-------------------|:--------------:|
+| Linear Regression  | 0.580          |
+| Random Forest      | 0.663          |
+| Gradient Boosting  | 0.678          |
+| Simple MLP         | 0.799          |
+| Advanced MLP       | 0.802          |
+| Transformer        | 0.772          |
+| Ensemble           | 0.759          |
+
+The Advanced MLP model achieved the best performance in ranking players according to MVP voting patterns.
 
 ## 3. Analysis of Award Share Prediction
 

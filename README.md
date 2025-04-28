@@ -60,20 +60,14 @@ dl-project/
 
 ## Installation
 
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/dl-project.git
-cd dl-project
-```
-
-2. Create a Python virtual environment:
+1. Create a Python virtual environment:
 ```bash
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
 # venv\Scripts\activate  # Windows
 ```
 
-3. Install dependencies:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -96,32 +90,26 @@ python predict_mvp_rank_ndcg.py
 
 ### Running Simple MLP
 ```bash
-cd scripts/ml_models
+cd scripts
 python simple_nn_mvp_ndcg.py
 ```
 
 ### Running Advanced MLP
 ```bash
-cd scripts/ml_models
+cd scripts
 python mlp_nn_ndcg.py
 ```
 
 ### Running Transformer Model
 ```bash
-cd scripts/ml_models
+cd scripts
 python transformer_mvp_ndcg.py
 ```
 
 ### Running Ensemble Model
 ```bash
-cd scripts/ml_models
-python ensemble_mvp_ndcg.py
-```
-
-### Evaluating Previously Saved Results
-```bash
 cd scripts
-python evaluate_award_share_rankings.py
+python ensemble_mvp_ndcg.py
 ```
 
 ## Key Models
@@ -147,17 +135,6 @@ Model performance evaluated using Normalized Discounted Cumulative Gain at 5 (ND
 | Ensemble           | 0.759          |
 
 The Advanced MLP model achieved the best performance in ranking players according to MVP voting patterns.
-
-## Technical Documentation
-
-Please see the `docs/` directory for comprehensive technical documentation on all aspects of the project:
-- Problem definition and goals
-- Data preprocessing methodology
-- Feature engineering and selection
-- Detailed model architectures
-- Training procedures
-- Evaluation metrics
-- Results analysis
 
 ## Team Members
 
