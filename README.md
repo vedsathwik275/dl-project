@@ -45,15 +45,6 @@ dl-project/
 │   ├── transformer_ndcg/   # Transformer NDCG plots
 │   ├── simple_ndcg/        # Simple NN NDCG plots
 │   └── ensemble_ndcg/      # Ensemble NDCG plots
-├── docs/                 # Technical documentation
-│   ├── Project_Overview_and_Goals.md
-│   ├── Data_Acquisition_and_Preprocessing.md
-│   ├── Feature_Engineering_and_Selection.md
-│   ├── Model_Architecture_Documentation.md
-│   ├── Training_Procedures.md
-│   ├── Evaluation_Strategy_and_Metrics.md
-│   ├── Results_and_Analysis.md
-│   └── Repository_Structure_and_Usage_Guide.md
 ├── requirements.txt      # Python dependencies
 └── README.md             # This file
 ```
@@ -72,13 +63,6 @@ source venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 ```
 
-## Data Requirements
-
-The main dataset `normalized_nba_data_with_MVP_rank_simple.csv` should be placed in the `data/` directory. It should contain the following key columns:
-- `player`: Player name
-- `season`: NBA season year (e.g., 2023 for 2022-23 season)
-- `award_share`: Target variable (proportion of MVP votes, 0-1 scale)
-- Various player statistics including those listed in `selected_features.txt`
 
 ## Usage
 
